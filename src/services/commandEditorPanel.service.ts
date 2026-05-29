@@ -388,19 +388,31 @@ export class CommandEditorPanelService {
     }
 
     private sendToTerminal (terminal: BaseTerminalTabComponent<any>, command: string): void {
-        const hasNewlines = command.includes('\n')
+        const execute = this.config.store.commandEditor?.panelSendExecuteImmediately !== false
+        const normalized = command.replace(/\r\n/g, '\n')
+        const hasNewlines = normalized.includes('\n')
 
-        if (hasNewlines && terminal.frontend?.supportsBracketedPaste()) {
-            terminal.sendInput(`\x1b[200~${command}\x1b[201~`)
-        } else if (hasNewlines) {
-            terminal.sendInput(command.replace(/\n+/g, ' '))
-        } else {
-            terminal.sendInput(command)
+        if (!hasNewlines) {
+            terminal.sendInput(normalized)
+            if (execute) {
+                terminal.sendInput('\r')
+            }
+            return
         }
 
-        const execute = this.config.store.commandEditor?.panelSendExecuteImmediately !== false
-        if (execute) {
-            terminal.sendInput('\r')
+        if (!execute && terminal.frontend?.supportsBracketedPaste()) {
+            terminal.sendInput(`\x1b[200~${normalized}\x1b[201~`)
+            return
+        }
+
+        const lines = normalized.split('\n')
+        for (let i = 0; i < lines.length; i++) {
+            terminal.sendInput(lines[i])
+            if (execute) {
+                terminal.sendInput('\r')
+            } else if (i < lines.length - 1) {
+                terminal.sendInput('\n')
+            }
         }
     }
 
