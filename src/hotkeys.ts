@@ -8,6 +8,18 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
             id: 'open-command-editor',
             name: this.translate.instant('Open command editor'),
         },
+        {
+            id: 'toggle-command-editor-panel',
+            name: this.translate.instant('Toggle command editor panel'),
+        },
+        {
+            id: 'send-command-line',
+            name: this.translate.instant('Send command line to terminal'),
+        },
+        {
+            id: 'open-command-editor-file',
+            name: this.translate.instant('Open file in command editor'),
+        },
     ]
 
     constructor (private translate: TranslateService) { super() }

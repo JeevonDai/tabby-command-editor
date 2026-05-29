@@ -4,6 +4,7 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap'
 import { ConfigService, HotkeysService, NotificationsService, TranslateService } from 'tabby-core'
 import { TerminalDecorator, BaseTerminalTabComponent, XTermFrontend } from 'tabby-terminal'
 import { PowerExtractionService, PowerExtractionResult } from './services/powerExtraction.service'
+import { CommandEditorPanelService } from './services/commandEditorPanel.service'
 import { CommandEditorModalComponent } from './components/commandEditorModal.component'
 
 @Injectable()
@@ -27,12 +28,14 @@ export class CommandEditorDecorator extends TerminalDecorator {
         private translate: TranslateService,
         private config: ConfigService,
         private powerExtraction: PowerExtractionService,
+        private panelService: CommandEditorPanelService,
     ) {
         super()
     }
 
     attach(tab: BaseTerminalTabComponent<any>): void {
-        if (!(tab.frontend instanceof XTermFrontend)) {
+        const xterm = (tab.frontend as any)?.xterm
+        if (!xterm) {
             return
         }
 
@@ -43,11 +46,12 @@ export class CommandEditorDecorator extends TerminalDecorator {
         this.tabTerminalIds.set(tab, terminalId)
 
         // Attach power extraction for prompt tracking
-        const extractionDisposable = this.powerExtraction.attach(terminalId, tab.frontend.xterm)
+        const extractionDisposable = this.powerExtraction.attach(terminalId, xterm)
 
         // Clean up when tab is destroyed
         this.subscribeUntilDetached(tab, tab.destroyed$.subscribe(() => {
             extractionDisposable.dispose()
+            this.panelService.disposeOverlay(tab)
         }))
 
         // Subscribe to hotkeys
