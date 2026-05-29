@@ -5,7 +5,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
         commandEditor: {
             executeImmediately: true,
             panelPosition: 'bottom',
-            panelSendExecuteImmediately: false,
+            panelSendExecuteImmediately: true,
         },
         hotkeys: {
             'open-command-editor': [],

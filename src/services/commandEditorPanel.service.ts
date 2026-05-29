@@ -8,6 +8,9 @@ const STYLE_ID = 'tabby-command-editor-panel-style'
 const BAR_ID = 'tabby-command-editor-panel-bar'
 const BODY_CLASS = 'tabby-command-editor-panel-enabled'
 const BROADCAST_BAR_ID = 'tabby-broadcast-input-bar'
+const TAB_CONTENT_SELECTOR = 'app-root > .content > .content'
+
+type PanelPosition = 'bottom' | 'right'
 
 interface PanelState {
     root: HTMLElement
@@ -20,6 +23,14 @@ interface PanelState {
 @Injectable()
 export class CommandEditorPanelService {
     private panel: PanelState | null = null
+    private readonly onWindowResize = (): void => {
+        if (!this.panel?.visible) {
+            return
+        }
+        this.applyPanelPosition(this.panel)
+        this.adjustLayout(this.panel)
+        this.panel.editor.layout()
+    }
 
     constructor (
         private app: AppService,
@@ -27,11 +38,7 @@ export class CommandEditorPanelService {
         private platform: PlatformService,
         private notifications: NotificationsService,
         private translate: TranslateService,
-    ) {
-        this.app.ready$.subscribe(() => {
-            this.ensurePanel()
-        })
-    }
+    ) {}
 
     disposeOverlay (_tab: BaseTerminalTabComponent<any>): void {
         // Global panel — nothing to dispose per terminal tab
@@ -180,7 +187,7 @@ export class CommandEditorPanelService {
         editorHost.className = 'command-editor-panel-editor-host'
 
         root.append(toolbar, editorHost)
-        document.body.appendChild(root)
+        this.mountPanel(root)
 
         const editor = monaco.editor.create(editorHost, {
             value: '',
@@ -213,14 +220,41 @@ export class CommandEditorPanelService {
         return this.panel
     }
 
+    private getTabContentArea (): HTMLElement | null {
+        return document.querySelector(TAB_CONTENT_SELECTOR) as HTMLElement | null
+    }
+
+    /** Mount inside the terminal tab area so the panel sits beside terminals, not over the title/tab bar */
+    private mountPanel (root: HTMLElement): void {
+        const tabArea = this.getTabContentArea()
+        ;(tabArea ?? document.body).appendChild(root)
+    }
+
+    private getPanelPosition (): PanelPosition {
+        return this.config.store.commandEditor?.panelPosition === 'right' ? 'right' : 'bottom'
+    }
+
+    private applyPanelPosition (state: PanelState): void {
+        this.mountPanel(state.root)
+
+        const position = this.getPanelPosition()
+        state.root.classList.remove('position-bottom', 'position-right')
+        state.root.classList.add(position === 'right' ? 'position-right' : 'position-bottom')
+
+        const broadcastOffset = this.getBroadcastBarHeight()
+        state.root.style.bottom = broadcastOffset > 0 ? `${broadcastOffset}px` : '0'
+    }
+
     private showPanel (state: PanelState): void {
-        this.syncBroadcastOffset(state.root)
+        this.applyPanelPosition(state)
         state.root.style.display = 'flex'
         state.visible = true
         document.body.classList.add(BODY_CLASS)
+        document.body.dataset.commandEditorPanelPosition = this.getPanelPosition()
+        window.addEventListener('resize', this.onWindowResize)
 
         requestAnimationFrame(() => {
-            this.adjustLayout(state.root.offsetHeight || 240)
+            this.adjustLayout(state)
             state.editor.layout()
             state.editor.focus()
         })
@@ -230,60 +264,51 @@ export class CommandEditorPanelService {
         state.root.style.display = 'none'
         state.visible = false
         document.body.classList.remove(BODY_CLASS)
+        delete document.body.dataset.commandEditorPanelPosition
+        window.removeEventListener('resize', this.onWindowResize)
         this.restoreLayout()
         state.editor.layout()
     }
 
-    /** Match tabby-broadcast-input: reserve space so the panel does not cover the terminal */
-    private adjustLayout (panelHeight: number): void {
-        const appRoot = document.querySelector('app-root') as HTMLElement | null
-        if (!appRoot) {
-            window.dispatchEvent(new Event('resize'))
-            return
-        }
-
-        const totalBottom = panelHeight + this.getBroadcastBarHeight()
-        const pos = window.getComputedStyle(appRoot).position
-        if (pos === 'absolute' || pos === 'fixed') {
-            appRoot.style.bottom = `${totalBottom}px`
-        } else {
-            appRoot.style.paddingBottom = `${totalBottom}px`
-            appRoot.style.boxSizing = 'border-box'
-        }
-        window.dispatchEvent(new Event('resize'))
-    }
-
-    private restoreLayout (): void {
-        const appRoot = document.querySelector('app-root') as HTMLElement | null
-        if (!appRoot) {
+    /** Shrink the terminal tab area while the panel is visible */
+    private adjustLayout (state: PanelState): void {
+        const host = this.getTabContentArea()
+        if (!host) {
             window.dispatchEvent(new Event('resize'))
             return
         }
 
         const broadcastHeight = this.getBroadcastBarHeight()
-        if (broadcastHeight > 0) {
-            const pos = window.getComputedStyle(appRoot).position
-            if (pos === 'absolute' || pos === 'fixed') {
-                appRoot.style.bottom = `${broadcastHeight}px`
-            } else {
-                appRoot.style.paddingBottom = `${broadcastHeight}px`
-                appRoot.style.boxSizing = 'border-box'
-            }
+        const position = this.getPanelPosition()
+
+        host.style.boxSizing = 'border-box'
+
+        if (position === 'right') {
+            const panelWidth = state.root.offsetWidth || Math.round(host.clientWidth * 0.38)
+            host.style.paddingRight = `${panelWidth}px`
+            host.style.paddingBottom = broadcastHeight > 0 ? `${broadcastHeight}px` : ''
         } else {
-            appRoot.style.bottom = ''
-            appRoot.style.paddingBottom = ''
-            appRoot.style.boxSizing = ''
+            host.style.paddingRight = ''
+            const panelHeight = state.root.offsetHeight || Math.round(host.clientHeight * 0.38)
+            host.style.paddingBottom = `${panelHeight + broadcastHeight}px`
         }
+
+        window.dispatchEvent(new Event('resize'))
+    }
+
+    private restoreLayout (): void {
+        const host = this.getTabContentArea()
+        if (host) {
+            host.style.paddingRight = ''
+            host.style.paddingBottom = ''
+            host.style.boxSizing = ''
+        }
+
         window.dispatchEvent(new Event('resize'))
     }
 
     private getBroadcastBarHeight (): number {
         return document.getElementById(BROADCAST_BAR_ID)?.offsetHeight ?? 0
-    }
-
-    private syncBroadcastOffset (root: HTMLElement): void {
-        const offset = this.getBroadcastBarHeight()
-        root.style.bottom = offset > 0 ? `${offset}px` : '0'
     }
 
     private installStyles (): void {
@@ -295,20 +320,31 @@ export class CommandEditorPanelService {
         style.id = STYLE_ID
         style.textContent = `
             #${BAR_ID} {
-                position: fixed;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                z-index: 1000;
+                position: absolute;
+                z-index: 100;
                 display: flex;
                 flex-direction: column;
-                height: 38vh;
-                min-height: 140px;
-                max-height: 70vh;
-                border-top: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
                 background: var(--bs-body-bg, rgba(16, 18, 22, 0.96));
                 backdrop-filter: blur(6px);
-                box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.35);
+                box-shadow: 0 0 12px rgba(0, 0, 0, 0.35);
+            }
+
+            #${BAR_ID}.position-bottom {
+                left: 0;
+                right: 0;
+                height: 38%;
+                min-height: 140px;
+                max-height: 70%;
+                border-top: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
+            }
+
+            #${BAR_ID}.position-right {
+                top: 0;
+                right: 0;
+                width: 38%;
+                min-width: 320px;
+                max-width: 60%;
+                border-left: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
             }
 
             #${BAR_ID} .command-editor-panel-toolbar {
@@ -362,7 +398,8 @@ export class CommandEditorPanelService {
             terminal.sendInput(command)
         }
 
-        if (this.config.store.commandEditor?.panelSendExecuteImmediately) {
+        const execute = this.config.store.commandEditor?.panelSendExecuteImmediately !== false
+        if (execute) {
             terminal.sendInput('\r')
         }
     }
