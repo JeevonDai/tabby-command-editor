@@ -4,7 +4,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
     defaults = {
         commandEditor: {
             executeImmediately: true,
-            panelPosition: 'bottom',
+            panelPosition: 'right',
             lastOpenedFile: null as string | null,
         },
         hotkeys: {

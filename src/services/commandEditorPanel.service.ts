@@ -25,6 +25,13 @@ interface PanelState {
 @Injectable()
 export class CommandEditorPanelService {
     private panel: PanelState | null = null
+    private pendingLastOpenedFile: string | null = null
+    private hostLayoutBackup: {
+        paddingRight: string
+        paddingBottom: string
+        boxSizing: string
+        overflow: string
+    } | null = null
     private readonly onWindowResize = (): void => {
         if (!this.panel?.visible) {
             return
@@ -42,7 +49,10 @@ export class CommandEditorPanelService {
         private translate: TranslateService,
     ) {
         this.app.ready$.subscribe(() => {
-            this.restoreLastOpenedFile()
+            const filePath = this.config.store.commandEditor?.lastOpenedFile
+            if (filePath && typeof filePath === 'string') {
+                this.pendingLastOpenedFile = filePath
+            }
         })
     }
 
@@ -218,7 +228,7 @@ export class CommandEditorPanelService {
             theme: this.getEditorTheme(),
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
-            automaticLayout: true,
+            automaticLayout: false,
             wordWrap: 'on',
             lineNumbers: 'on',
             fontSize: 14,
@@ -226,6 +236,12 @@ export class CommandEditorPanelService {
             tabSize: 2,
             insertSpaces: true,
             quickSuggestions: false,
+            scrollbar: {
+                vertical: 'auto',
+                horizontal: 'hidden',
+                useShadows: false,
+            },
+            overviewRulerLanes: 0,
         })
 
         openBtn.addEventListener('click', () => this.openFile())
@@ -241,23 +257,21 @@ export class CommandEditorPanelService {
         })
 
         this.panel = { root, editorHost, editor, fileLabel, filePath: null, visible: false, layoutAdjusted: false }
+        this.applyPendingLastOpenedFile(this.panel)
         return this.panel
     }
 
-    private restoreLastOpenedFile (): void {
-        const filePath = this.config.store.commandEditor?.lastOpenedFile
-        if (!filePath) {
+    private applyPendingLastOpenedFile (state: PanelState): void {
+        if (!this.pendingLastOpenedFile) {
             return
         }
 
-        try {
-            const state = this.ensurePanel()
-            if (!this.loadFileFromPath(state, filePath)) {
-                this.config.store.commandEditor.lastOpenedFile = null
-                this.config.save()
-            }
-        } catch (err) {
-            console.error('[CommandEditorPanel] Failed to restore last opened file:', err)
+        const filePath = this.pendingLastOpenedFile
+        this.pendingLastOpenedFile = null
+
+        if (!this.loadFileFromPath(state, filePath) && this.config.store.commandEditor) {
+            this.config.store.commandEditor.lastOpenedFile = null
+            this.config.save()
         }
     }
 
@@ -337,6 +351,7 @@ export class CommandEditorPanelService {
         window.addEventListener('resize', this.onWindowResize)
 
         requestAnimationFrame(() => {
+            state.editor.updateOptions({ automaticLayout: true })
             this.adjustLayout(state)
             state.editor.layout()
             state.editor.focus()
@@ -347,6 +362,7 @@ export class CommandEditorPanelService {
         state.root.style.display = 'none'
         state.visible = false
         state.root.remove()
+        state.editor.updateOptions({ automaticLayout: false })
         document.body.classList.remove(BODY_CLASS)
         delete document.body.dataset.commandEditorPanelPosition
         window.removeEventListener('resize', this.onWindowResize)
@@ -357,22 +373,29 @@ export class CommandEditorPanelService {
     private adjustLayout (state: PanelState): void {
         const host = this.getTabContentArea()
         if (!host) {
-            window.dispatchEvent(new Event('resize'))
             return
+        }
+
+        if (!state.layoutAdjusted) {
+            this.hostLayoutBackup = {
+                paddingRight: host.style.paddingRight,
+                paddingBottom: host.style.paddingBottom,
+                boxSizing: host.style.boxSizing,
+                overflow: host.style.overflow,
+            }
         }
 
         const broadcastHeight = this.getBroadcastBarHeight()
         const position = this.getPanelPosition()
 
         host.style.boxSizing = 'border-box'
+        host.style.overflow = 'hidden'
         state.layoutAdjusted = true
 
         if (position === 'right') {
             const panelWidth = state.root.offsetWidth || Math.round(host.clientWidth * 0.38)
             host.style.paddingRight = `${panelWidth}px`
-            host.style.paddingBottom = broadcastHeight > 0 ? `${broadcastHeight}px` : ''
         } else {
-            host.style.paddingRight = ''
             const panelHeight = state.root.offsetHeight || Math.round(host.clientHeight * 0.38)
             host.style.paddingBottom = `${panelHeight + broadcastHeight}px`
         }
@@ -381,17 +404,19 @@ export class CommandEditorPanelService {
     }
 
     private restoreLayout (state: PanelState): void {
-        if (!state.layoutAdjusted) {
+        if (!state.layoutAdjusted || !this.hostLayoutBackup) {
             return
         }
 
         const host = this.getTabContentArea()
         if (host) {
-            host.style.paddingRight = ''
-            host.style.paddingBottom = ''
-            host.style.boxSizing = ''
+            host.style.paddingRight = this.hostLayoutBackup.paddingRight
+            host.style.paddingBottom = this.hostLayoutBackup.paddingBottom
+            host.style.boxSizing = this.hostLayoutBackup.boxSizing
+            host.style.overflow = this.hostLayoutBackup.overflow
         }
 
+        this.hostLayoutBackup = null
         state.layoutAdjusted = false
         window.dispatchEvent(new Event('resize'))
     }
@@ -413,6 +438,7 @@ export class CommandEditorPanelService {
                 z-index: 100;
                 display: flex;
                 flex-direction: column;
+                overflow: hidden;
                 background: var(--bs-body-bg, rgba(16, 18, 22, 0.96));
                 backdrop-filter: blur(6px);
                 box-shadow: 0 0 12px rgba(0, 0, 0, 0.35);
@@ -463,6 +489,7 @@ export class CommandEditorPanelService {
             #${BAR_ID} .command-editor-panel-editor-host {
                 flex: 1;
                 min-height: 0;
+                overflow: hidden;
             }
         `
         document.head.appendChild(style)
