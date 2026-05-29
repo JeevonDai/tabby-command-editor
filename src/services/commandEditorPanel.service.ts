@@ -18,6 +18,7 @@ interface PanelState {
     editor: monaco.editor.IStandaloneCodeEditor
     filePath: string | null
     visible: boolean
+    layoutAdjusted: boolean
 }
 
 @Injectable()
@@ -187,7 +188,6 @@ export class CommandEditorPanelService {
         editorHost.className = 'command-editor-panel-editor-host'
 
         root.append(toolbar, editorHost)
-        this.mountPanel(root)
 
         const editor = monaco.editor.create(editorHost, {
             value: '',
@@ -216,7 +216,7 @@ export class CommandEditorPanelService {
             this.pasteIntoEditor(editor)
         })
 
-        this.panel = { root, editorHost, editor, filePath: null, visible: false }
+        this.panel = { root, editorHost, editor, filePath: null, visible: false, layoutAdjusted: false }
         return this.panel
     }
 
@@ -235,8 +235,6 @@ export class CommandEditorPanelService {
     }
 
     private applyPanelPosition (state: PanelState): void {
-        this.mountPanel(state.root)
-
         const position = this.getPanelPosition()
         state.root.classList.remove('position-bottom', 'position-right')
         state.root.classList.add(position === 'right' ? 'position-right' : 'position-bottom')
@@ -246,6 +244,7 @@ export class CommandEditorPanelService {
     }
 
     private showPanel (state: PanelState): void {
+        this.mountPanel(state.root)
         this.applyPanelPosition(state)
         state.root.style.display = 'flex'
         state.visible = true
@@ -263,11 +262,11 @@ export class CommandEditorPanelService {
     private hidePanel (state: PanelState): void {
         state.root.style.display = 'none'
         state.visible = false
+        state.root.remove()
         document.body.classList.remove(BODY_CLASS)
         delete document.body.dataset.commandEditorPanelPosition
         window.removeEventListener('resize', this.onWindowResize)
-        this.restoreLayout()
-        state.editor.layout()
+        this.restoreLayout(state)
     }
 
     /** Shrink the terminal tab area while the panel is visible */
@@ -282,6 +281,7 @@ export class CommandEditorPanelService {
         const position = this.getPanelPosition()
 
         host.style.boxSizing = 'border-box'
+        state.layoutAdjusted = true
 
         if (position === 'right') {
             const panelWidth = state.root.offsetWidth || Math.round(host.clientWidth * 0.38)
@@ -296,7 +296,11 @@ export class CommandEditorPanelService {
         window.dispatchEvent(new Event('resize'))
     }
 
-    private restoreLayout (): void {
+    private restoreLayout (state: PanelState): void {
+        if (!state.layoutAdjusted) {
+            return
+        }
+
         const host = this.getTabContentArea()
         if (host) {
             host.style.paddingRight = ''
@@ -304,6 +308,7 @@ export class CommandEditorPanelService {
             host.style.boxSizing = ''
         }
 
+        state.layoutAdjusted = false
         window.dispatchEvent(new Event('resize'))
     }
 
@@ -388,31 +393,14 @@ export class CommandEditorPanelService {
     }
 
     private sendToTerminal (terminal: BaseTerminalTabComponent<any>, command: string): void {
-        const execute = this.config.store.commandEditor?.panelSendExecuteImmediately !== false
-        const normalized = command.replace(/\r\n/g, '\n')
-        const hasNewlines = normalized.includes('\n')
-
-        if (!hasNewlines) {
-            terminal.sendInput(normalized)
-            if (execute) {
-                terminal.sendInput('\r')
-            }
-            return
+        let lines = command.replace(/\r\n/g, '\n').split('\n')
+        while (lines.length > 1 && lines[lines.length - 1] === '') {
+            lines.pop()
         }
 
-        if (!execute && terminal.frontend?.supportsBracketedPaste()) {
-            terminal.sendInput(`\x1b[200~${normalized}\x1b[201~`)
-            return
-        }
-
-        const lines = normalized.split('\n')
-        for (let i = 0; i < lines.length; i++) {
-            terminal.sendInput(lines[i])
-            if (execute) {
-                terminal.sendInput('\r')
-            } else if (i < lines.length - 1) {
-                terminal.sendInput('\n')
-            }
+        for (const line of lines) {
+            terminal.sendInput(line)
+            terminal.sendInput('\r')
         }
     }
 
