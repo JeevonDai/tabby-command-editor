@@ -16,6 +16,7 @@ interface PanelState {
     root: HTMLElement
     editorHost: HTMLElement
     editor: monaco.editor.IStandaloneCodeEditor
+    fileLabel: HTMLElement
     filePath: string | null
     visible: boolean
     layoutAdjusted: boolean
@@ -39,7 +40,11 @@ export class CommandEditorPanelService {
         private platform: PlatformService,
         private notifications: NotificationsService,
         private translate: TranslateService,
-    ) {}
+    ) {
+        this.app.ready$.subscribe(() => {
+            this.restoreLastOpenedFile()
+        })
+    }
 
     disposeOverlay (_tab: BaseTerminalTabComponent<any>): void {
         // Global panel — nothing to dispose per terminal tab
@@ -96,19 +101,8 @@ export class CommandEditorPanelService {
         }
 
         const filePath = result.filePaths[0] as string
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const fs = require('fs') as typeof import('fs')
-        let content = fs.readFileSync(filePath, 'utf8')
-        if (content.charCodeAt(0) === 0xFEFF) {
-            content = content.slice(1)
-        }
-
-        const model = state.editor.getModel()
-        if (model) {
-            monaco.editor.setModelLanguage(model, this.detectLanguage(filePath))
-        }
-        state.editor.setValue(content)
-        state.filePath = filePath
+        this.loadFileFromPath(state, filePath)
+        this.persistLastOpenedFile(filePath)
         state.editor.layout()
         state.editor.focus()
     }
@@ -138,6 +132,8 @@ export class CommandEditorPanelService {
         const fs = require('fs') as typeof import('fs')
         fs.writeFileSync(filePath, state.editor.getValue(), 'utf8')
         state.filePath = filePath
+        this.persistLastOpenedFile(filePath)
+        this.updateFileLabel(state)
         this.notifications.notice(this.translate.instant('File saved'))
     }
 
@@ -155,6 +151,29 @@ export class CommandEditorPanelService {
         }
 
         this.sendToTerminal(terminalTab, text)
+    }
+
+    closeFile (): void {
+        const state = this.panel
+        if (!state) {
+            return
+        }
+
+        state.editor.setValue('')
+        state.filePath = null
+
+        const model = state.editor.getModel()
+        if (model) {
+            monaco.editor.setModelLanguage(model, 'shell')
+        }
+
+        if (this.config.store.commandEditor) {
+            this.config.store.commandEditor.lastOpenedFile = null
+            this.config.save()
+        }
+
+        this.updateFileLabel(state)
+        state.editor.focus()
     }
 
     private ensurePanel (): PanelState {
@@ -181,8 +200,12 @@ export class CommandEditorPanelService {
 
         const openBtn = mkBtn('Open')
         const saveBtn = mkBtn('Save')
+        const closeBtn = mkBtn('Close')
+        const fileLabel = document.createElement('span')
+        fileLabel.className = 'command-editor-panel-file-label'
+        fileLabel.title = ''
         const sendBtn = mkBtn('Send line', true)
-        toolbar.append(openBtn, saveBtn, sendBtn)
+        toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendBtn)
 
         const editorHost = document.createElement('div')
         editorHost.className = 'command-editor-panel-editor-host'
@@ -207,6 +230,7 @@ export class CommandEditorPanelService {
 
         openBtn.addEventListener('click', () => this.openFile())
         saveBtn.addEventListener('click', () => this.saveFile())
+        closeBtn.addEventListener('click', () => this.closeFile())
         sendBtn.addEventListener('click', () => this.sendFromPanel())
 
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => this.sendFromPanel())
@@ -216,8 +240,68 @@ export class CommandEditorPanelService {
             this.pasteIntoEditor(editor)
         })
 
-        this.panel = { root, editorHost, editor, filePath: null, visible: false, layoutAdjusted: false }
+        this.panel = { root, editorHost, editor, fileLabel, filePath: null, visible: false, layoutAdjusted: false }
         return this.panel
+    }
+
+    private restoreLastOpenedFile (): void {
+        const filePath = this.config.store.commandEditor?.lastOpenedFile
+        if (!filePath) {
+            return
+        }
+
+        try {
+            const state = this.ensurePanel()
+            if (!this.loadFileFromPath(state, filePath)) {
+                this.config.store.commandEditor.lastOpenedFile = null
+                this.config.save()
+            }
+        } catch (err) {
+            console.error('[CommandEditorPanel] Failed to restore last opened file:', err)
+        }
+    }
+
+    private persistLastOpenedFile (filePath: string): void {
+        if (!this.config.store.commandEditor) {
+            return
+        }
+        this.config.store.commandEditor.lastOpenedFile = filePath
+        this.config.save()
+    }
+
+    private loadFileFromPath (state: PanelState, filePath: string): boolean {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const fs = require('fs') as typeof import('fs')
+        if (!fs.existsSync(filePath)) {
+            return false
+        }
+
+        let content = fs.readFileSync(filePath, 'utf8')
+        if (content.charCodeAt(0) === 0xFEFF) {
+            content = content.slice(1)
+        }
+
+        const model = state.editor.getModel()
+        if (model) {
+            monaco.editor.setModelLanguage(model, this.detectLanguage(filePath))
+        }
+        state.editor.setValue(content)
+        state.filePath = filePath
+        this.updateFileLabel(state)
+        return true
+    }
+
+    private updateFileLabel (state: PanelState): void {
+        if (!state.filePath) {
+            state.fileLabel.textContent = ''
+            state.fileLabel.title = ''
+            return
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const path = require('path') as typeof import('path')
+        state.fileLabel.textContent = path.basename(state.filePath)
+        state.fileLabel.title = state.filePath
     }
 
     private getTabContentArea (): HTMLElement | null {
@@ -363,6 +447,17 @@ export class CommandEditorPanelService {
 
             #${BAR_ID} .command-editor-panel-toolbar .btn-primary {
                 margin-left: auto;
+            }
+
+            #${BAR_ID} .command-editor-panel-file-label {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 12px;
+                color: var(--bs-secondary-color, #aaa);
+                padding: 0 4px;
             }
 
             #${BAR_ID} .command-editor-panel-editor-host {
