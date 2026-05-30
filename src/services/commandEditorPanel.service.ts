@@ -32,8 +32,9 @@ export class CommandEditorPanelService {
         boxSizing: string
         overflow: string
     } | null = null
+    private suppressResizeHandler = false
     private readonly onWindowResize = (): void => {
-        if (!this.panel?.visible) {
+        if (!this.panel?.visible || this.suppressResizeHandler) {
             return
         }
         this.applyPanelPosition(this.panel)
@@ -54,10 +55,6 @@ export class CommandEditorPanelService {
                 this.pendingLastOpenedFile = filePath
             }
         })
-    }
-
-    disposeOverlay (_tab: BaseTerminalTabComponent<any>): void {
-        // Global panel — nothing to dispose per terminal tab
     }
 
     isOverlayVisible (_tab: BaseTerminalTabComponent<any>): boolean {
@@ -354,6 +351,7 @@ export class CommandEditorPanelService {
             state.editor.updateOptions({ automaticLayout: true })
             this.adjustLayout(state)
             state.editor.layout()
+            this.notifyTerminalLayoutChanged()
             state.editor.focus()
         })
     }
@@ -367,6 +365,7 @@ export class CommandEditorPanelService {
         delete document.body.dataset.commandEditorPanelPosition
         window.removeEventListener('resize', this.onWindowResize)
         this.restoreLayout(state)
+        this.notifyTerminalLayoutChanged()
     }
 
     /** Shrink the terminal tab area while the panel is visible */
@@ -399,8 +398,16 @@ export class CommandEditorPanelService {
             const panelHeight = state.root.offsetHeight || Math.round(host.clientHeight * 0.38)
             host.style.paddingBottom = `${panelHeight + broadcastHeight}px`
         }
+    }
 
-        window.dispatchEvent(new Event('resize'))
+    /** Tell xterm/Tabby to reflow without re-entering our resize handler */
+    private notifyTerminalLayoutChanged (): void {
+        this.suppressResizeHandler = true
+        try {
+            window.dispatchEvent(new Event('resize'))
+        } finally {
+            this.suppressResizeHandler = false
+        }
     }
 
     private restoreLayout (state: PanelState): void {
@@ -418,7 +425,6 @@ export class CommandEditorPanelService {
 
         this.hostLayoutBackup = null
         state.layoutAdjusted = false
-        window.dispatchEvent(new Event('resize'))
     }
 
     private getBroadcastBarHeight (): number {

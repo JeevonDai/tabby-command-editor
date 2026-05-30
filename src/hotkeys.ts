@@ -5,10 +5,6 @@ import { HotkeyDescription, HotkeyProvider, TranslateService } from 'tabby-core'
 export class CommandEditorHotkeyProvider extends HotkeyProvider {
     hotkeys: HotkeyDescription[] = [
         {
-            id: 'open-command-editor',
-            name: this.translate.instant('Open command editor'),
-        },
-        {
             id: 'toggle-command-editor-panel',
             name: this.translate.instant('Toggle command editor panel'),
         },

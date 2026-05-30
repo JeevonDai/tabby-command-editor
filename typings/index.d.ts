@@ -1,6 +1,5 @@
 /**
- * tabby-command-editor - Rich command editor for Tabby
+ * tabby-command-editor - Rich command editor panel for Tabby
  */
 
-export { PowerExtractionService, PowerExtractionResult } from '../src/services/powerExtraction.service'
-export { CommandEditorModalComponent } from '../src/components/commandEditorModal.component'
+export { CommandEditorPanelService } from '../src/services/commandEditorPanel.service'
