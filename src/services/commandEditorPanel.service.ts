@@ -1460,21 +1460,56 @@ export class CommandEditorPanelService {
             }
 
             #${BAR_ID} .command-editor-outline-item {
-                display: block;
+                display: flex;
+                align-items: center;
+                gap: 4px;
                 width: 100%;
                 border: 0;
                 background: transparent;
-                color: inherit;
+                color: var(--bs-body-color, #dee2e6);
                 text-align: left;
                 padding: 6px 12px;
                 font-size: 13px;
                 cursor: pointer;
             }
 
+            #${BAR_ID} .command-editor-outline-twistie {
+                flex: none;
+                width: 12px;
+                font-size: 10px;
+                color: var(--bs-secondary-color, #888);
+                text-align: center;
+                user-select: none;
+            }
+
+            #${BAR_ID} .command-editor-outline-label {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: inherit;
+            }
+
             #${BAR_ID} .command-editor-outline-item:hover,
             #${BAR_ID} .command-editor-outline-item:focus {
-                background: var(--bs-primary, rgba(47, 140, 255, 0.2));
+                background: rgba(255, 255, 255, 0.06);
                 outline: none;
+            }
+
+            #${BAR_ID} .command-editor-outline-item.active {
+                background: rgba(77, 163, 255, 0.1);
+                box-shadow: inset 3px 0 0 var(--bs-primary, #4da3ff);
+                outline: none;
+            }
+
+            #${BAR_ID} .command-editor-outline-item.active .command-editor-outline-label {
+                color: var(--bs-body-color, #f0f0f0);
+                font-weight: 600;
+            }
+
+            #${BAR_ID} .command-editor-outline-item.active .command-editor-outline-twistie {
+                color: var(--bs-primary, #4da3ff);
             }
 
             #${BAR_ID} .command-editor-outline-item.level-1 { padding-left: 12px; }

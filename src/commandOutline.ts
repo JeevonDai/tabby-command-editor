@@ -24,6 +24,15 @@ export interface MarkdownHeading {
     title: string
 }
 
+interface OutlineNode {
+    heading: MarkdownHeading
+    children: OutlineNode[]
+    parent: OutlineNode | null
+    element: HTMLButtonElement
+    twistie: HTMLSpanElement
+    expanded: boolean
+}
+
 let featuresRegistered = false
 let activePickerClose: (() => void) | null = null
 
@@ -50,6 +59,66 @@ export function parseMarkdownHeadings (text: string): MarkdownHeading[] {
     }
 
     return headings
+}
+
+function buildOutlineTree (headings: MarkdownHeading[]): OutlineNode[] {
+    const roots: OutlineNode[] = []
+    const stack: { level: number; node: OutlineNode }[] = []
+
+    for (const heading of headings) {
+        const node: OutlineNode = {
+            heading,
+            children: [],
+            parent: null,
+            element: null!,
+            twistie: null!,
+            expanded: false,
+        }
+
+        while (stack.length > 0 && stack[stack.length - 1].level >= heading.level) {
+            stack.pop()
+        }
+
+        if (stack.length === 0) {
+            roots.push(node)
+        } else {
+            const parent = stack[stack.length - 1].node
+            node.parent = parent
+            parent.children.push(node)
+        }
+
+        stack.push({ level: heading.level, node })
+    }
+
+    return roots
+}
+
+function walkOutlineNodes (roots: OutlineNode[], visit: (node: OutlineNode) => void): void {
+    for (const node of roots) {
+        visit(node)
+        walkOutlineNodes(node.children, visit)
+    }
+}
+
+function isOutlineNodeVisible (node: OutlineNode): boolean {
+    let current = node.parent
+    while (current) {
+        if (!current.expanded) {
+            return false
+        }
+        current = current.parent
+    }
+    return true
+}
+
+function getVisibleOutlineNodes (roots: OutlineNode[]): OutlineNode[] {
+    const visible: OutlineNode[] = []
+    walkOutlineNodes(roots, node => {
+        if (isOutlineNodeVisible(node)) {
+            visible.push(node)
+        }
+    })
+    return visible
 }
 
 function buildHeadingSymbolTree (model: monaco.editor.ITextModel): monaco.languages.DocumentSymbol[] {
@@ -117,6 +186,31 @@ export function closeHeadingOutlinePicker (): void {
     closeActivePicker()
 }
 
+function updateOutlineTwistie (node: OutlineNode): void {
+    if (node.children.length === 0) {
+        node.twistie.textContent = ''
+        node.element.classList.remove('has-children')
+        return
+    }
+
+    node.element.classList.add('has-children')
+    node.twistie.textContent = node.expanded ? '▾' : '▸'
+}
+
+function syncOutlineVisibility (roots: OutlineNode[]): void {
+    walkOutlineNodes(roots, node => {
+        node.element.style.display = isOutlineNodeVisible(node) ? '' : 'none'
+        updateOutlineTwistie(node)
+    })
+}
+
+function jumpToOutlineNode (editor: monaco.editor.IStandaloneCodeEditor, node: OutlineNode): void {
+    editor.setSelection(new monaco.Selection(node.heading.line, 1, node.heading.line, 1))
+    editor.revealLineInCenter(node.heading.line)
+    editor.focus()
+    closeActivePicker()
+}
+
 export function showHeadingOutlinePicker (
     editor: monaco.editor.IStandaloneCodeEditor,
     mountRoot: HTMLElement,
@@ -131,8 +225,8 @@ export function showHeadingOutlinePicker (
         return
     }
 
-    const headings = parseMarkdownHeadings(model.getValue())
-    if (headings.length === 0) {
+    const roots = buildOutlineTree(parseMarkdownHeadings(model.getValue()))
+    if (roots.length === 0) {
         return
     }
 
@@ -141,31 +235,110 @@ export function showHeadingOutlinePicker (
 
     const title = document.createElement('div')
     title.className = 'command-editor-outline-picker-title'
-    title.textContent = 'Outline (Ctrl+Q)'
+    title.textContent = 'Outline · ↑↓ · → expand · ← collapse · Enter'
     picker.appendChild(title)
 
-    for (const heading of headings) {
+    walkOutlineNodes(roots, node => {
         const item = document.createElement('button')
         item.type = 'button'
-        item.className = `command-editor-outline-item level-${heading.level}`
-        item.textContent = heading.title
-        item.title = `#${'#'.repeat(heading.level - 1)} ${heading.title}`
-        item.addEventListener('click', () => {
-            editor.setSelection(new monaco.Selection(heading.line, 1, heading.line, 1))
-            editor.revealLineInCenter(heading.line)
-            editor.focus()
-            closeActivePicker()
-        })
+        item.className = `command-editor-outline-item level-${node.heading.level}`
+
+        const twistie = document.createElement('span')
+        twistie.className = 'command-editor-outline-twistie'
+
+        const label = document.createElement('span')
+        label.className = 'command-editor-outline-label'
+        label.textContent = node.heading.title
+
+        item.append(twistie, label)
+        item.title = `#${'#'.repeat(node.heading.level - 1)} ${node.heading.title}`
+        item.addEventListener('click', () => jumpToOutlineNode(editor, node))
+
+        node.element = item
+        node.twistie = twistie
         picker.appendChild(item)
+    })
+
+    syncOutlineVisibility(roots)
+
+    let activeIndex = 0
+    const visibleNodes = (): OutlineNode[] => getVisibleOutlineNodes(roots)
+
+    const setActiveIndex = (index: number): void => {
+        const nodes = visibleNodes()
+        if (nodes.length === 0) {
+            return
+        }
+
+        activeIndex = Math.max(0, Math.min(index, nodes.length - 1))
+        walkOutlineNodes(roots, node => node.element.classList.remove('active'))
+        const activeNode = nodes[activeIndex]
+        activeNode.element.classList.add('active')
+        activeNode.element.scrollIntoView({ block: 'nearest' })
     }
 
+    setActiveIndex(0)
     mountRoot.appendChild(picker)
 
     const onKeyDown = (event: KeyboardEvent): void => {
-        if (event.key === 'Escape') {
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            closeActivePicker()
+        const nodes = visibleNodes()
+        if (nodes.length === 0) {
+            return
+        }
+
+        const activeNode = nodes[activeIndex] ?? nodes[0]
+
+        switch (event.key) {
+            case 'Escape':
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                closeActivePicker()
+                break
+            case 'ArrowDown':
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                setActiveIndex(activeIndex + 1)
+                break
+            case 'ArrowUp':
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                setActiveIndex(activeIndex - 1)
+                break
+            case 'ArrowRight':
+                if (activeNode.children.length === 0) {
+                    break
+                }
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                if (!activeNode.expanded) {
+                    activeNode.expanded = true
+                    syncOutlineVisibility(roots)
+                    setActiveIndex(activeIndex)
+                } else {
+                    setActiveIndex(activeIndex + 1)
+                }
+                break
+            case 'ArrowLeft':
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                if (activeNode.expanded && activeNode.children.length > 0) {
+                    activeNode.expanded = false
+                    syncOutlineVisibility(roots)
+                    setActiveIndex(activeIndex)
+                    break
+                }
+                if (activeNode.parent) {
+                    const parent = activeNode.parent
+                    const nextVisible = visibleNodes()
+                    const parentIndex = nextVisible.indexOf(parent)
+                    setActiveIndex(parentIndex >= 0 ? parentIndex : activeIndex)
+                }
+                break
+            case 'Enter':
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                jumpToOutlineNode(editor, activeNode)
+                break
         }
     }
 
