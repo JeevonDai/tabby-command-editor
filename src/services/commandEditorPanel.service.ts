@@ -881,6 +881,10 @@ export class CommandEditorPanelService {
                 height: calc(100% - var(${PANEL_SIZE_VAR})) !important;
             }
 
+            body.${BODY_CLASS}[data-command-editor-panel-position="right"] search-panel {
+                right: calc(50px + var(${PANEL_SIZE_VAR})) !important;
+            }
+
             #${BAR_ID} {
                 position: absolute;
                 z-index: 100;
