@@ -15,7 +15,7 @@ const BROADCAST_BAR_ID = 'tabby-broadcast-input-bar'
 const TAB_CONTENT_SELECTOR = 'app-root > .content > .content'
 const PANEL_SIZE_VAR = '--tabby-command-editor-panel-size'
 const CONTENT_TAB_SELECTOR = 'app-root .content > .content > .content-tab.content-tab-active, app-root > .content > .content > .content-tab.content-tab-active'
-const PLUGIN_BUILD_ID = '20260530-loop3'
+const PLUGIN_BUILD_ID = '20260530-loop5'
 
 type PanelPosition = 'bottom' | 'right'
 
@@ -26,6 +26,7 @@ interface PanelState {
     editor: monaco.editor.IStandaloneCodeEditor
     fileLabel: HTMLElement
     sendIntervalInput: HTMLInputElement
+    sendLoopCountInput: HTMLInputElement
     loopSendBtn: HTMLButtonElement
     batchStatusBar: HTMLElement
     batchStatusHeader: HTMLElement
@@ -334,7 +335,7 @@ export class CommandEditorPanelService {
             return
         }
 
-        if (!state.batchStatusBar || !state.sendIntervalInput) {
+        if (!state.batchStatusBar || !state.sendIntervalInput || !state.sendLoopCountInput) {
             this.notifications.error(this.translate.instant('Loop send failed'))
             console.warn('[CommandEditorPanel] Panel UI outdated — close and reopen the panel (Ctrl+E)')
             return
@@ -360,10 +361,12 @@ export class CommandEditorPanelService {
 
         const intervalSec = this.readSendIntervalSec(state)
         const delayMs = Math.max(0, intervalSec * 1000)
+        const loopCount = this.readSendLoopCount(state)
 
         console.error('[CommandEditorPanel] Loop send start', {
             build: PLUGIN_BUILD_ID,
             lineCount: lines.length,
+            loopCount,
             intervalSec,
             delayMs,
             hasSession: !!terminalTab.session,
@@ -371,9 +374,16 @@ export class CommandEditorPanelService {
             lines,
         })
 
-        this.notifications.info(`Loop send: ${lines.length} line(s), ${intervalSec}s interval [${PLUGIN_BUILD_ID}]`)
+        this.startLoopSendJob(state, terminalTab, lines, delayMs, loopCount)
+    }
 
-        this.startLoopSendJob(state, terminalTab, lines, delayMs)
+    cancelLoopSend (): void {
+        const state = this.panel
+        if (!state?.visible || state.batchStatusBar.style.display !== 'flex') {
+            return
+        }
+
+        this.cancelBatchSend()
     }
 
     private startLoopSendJob (
@@ -381,10 +391,11 @@ export class CommandEditorPanelService {
         terminal: BaseTerminalTabComponent<any>,
         lines: string[],
         delayMs: number,
+        loopCount: number,
     ): void {
         const jobId = ++this.batchSendJobId
 
-        this.showBatchStatus(state, lines, 0)
+        this.showBatchStatus(state, lines, 0, 0, loopCount)
         state.editor.layout()
 
         let sentCount = 0
@@ -403,22 +414,26 @@ export class CommandEditorPanelService {
             }
         }
 
-        const scheduleNext = (nextIndex: number): void => {
-            const delay = nextIndex >= lines.length ? 0 : delayMs
+        const scheduleAt = (round: number, lineIndex: number, delay: number): void => {
             this.zone.runOutsideAngular(() => {
                 window.setTimeout(() => {
-                    this.zone.run(() => sendAt(nextIndex))
+                    this.zone.run(() => sendAt(round, lineIndex))
                 }, delay)
             })
         }
 
-        const sendAt = (index: number): void => {
+        const sendAt = (round: number, lineIndex: number): void => {
             if (jobId !== this.batchSendJobId) {
                 return
             }
 
-            if (index >= lines.length) {
+            if (round >= loopCount) {
                 finish()
+                return
+            }
+
+            if (lineIndex >= lines.length) {
+                scheduleAt(round + 1, 0, round + 1 >= loopCount ? 0 : delayMs)
                 return
             }
 
@@ -426,16 +441,21 @@ export class CommandEditorPanelService {
             if (!activeTerminal?.session) {
                 this.cancelBatchSend()
                 this.notifications.info(this.translate.instant('No active terminal'))
-                console.error('[CommandEditorPanel] Loop send stopped: terminal gone at line', index + 1)
+                console.error('[CommandEditorPanel] Loop send stopped: terminal gone at round', round + 1, 'line', lineIndex + 1)
                 return
             }
 
-            this.updateBatchStatus(state, lines, index)
+            this.updateBatchStatus(state, lines, lineIndex, round, loopCount)
 
             try {
-                this.sendLineToTerminal(activeTerminal, lines[index])
+                this.sendLineToTerminal(activeTerminal, lines[lineIndex])
                 sentCount++
-                console.error('[CommandEditorPanel] Loop send line', index + 1, '/', lines.length, lines[index])
+                console.error(
+                    '[CommandEditorPanel] Loop send',
+                    `round ${round + 1}/${loopCount}`,
+                    `line ${lineIndex + 1}/${lines.length}`,
+                    lines[lineIndex],
+                )
             } catch (err) {
                 console.error('[CommandEditorPanel] Loop send failed:', err)
                 this.cancelBatchSend()
@@ -443,10 +463,19 @@ export class CommandEditorPanelService {
                 return
             }
 
-            scheduleNext(index + 1)
+            const nextLineIndex = lineIndex + 1
+            const isLastLine = nextLineIndex >= lines.length
+            const isLastRound = round + 1 >= loopCount
+            const nextDelay = isLastLine && isLastRound ? 0 : delayMs
+
+            if (isLastLine) {
+                scheduleAt(round + 1, 0, nextDelay)
+            } else {
+                scheduleAt(round, nextLineIndex, nextDelay)
+            }
         }
 
-        this.zone.run(() => sendAt(0))
+        this.zone.run(() => sendAt(0, 0))
     }
 
     private cancelBatchSend (): void {
@@ -482,6 +511,11 @@ export class CommandEditorPanelService {
 
     private ensurePanel (): PanelState {
         if (this.panel && !this.panel.batchStatusPreview) {
+            this.panel.root.remove()
+            this.panel = null
+        }
+
+        if (this.panel && !this.panel.sendLoopCountInput) {
             this.panel.root.remove()
             this.panel = null
         }
@@ -553,13 +587,30 @@ export class CommandEditorPanelService {
 
         intervalWrap.append(sendIntervalInput, intervalUnit)
 
-        const loopSendBtn = mkBtn('Loop send')
-        loopSendBtn.title = `Send selected lines with interval (F6) [${PLUGIN_BUILD_ID}]`
+        const loopCountWrap = document.createElement('label')
+        loopCountWrap.className = 'command-editor-panel-interval'
+        loopCountWrap.title = 'Repeat count (run selected lines this many times)'
 
-        const sendBtn = mkBtn('Send line', true)
-        sendBtn.title = 'Enter / F8'
+        const sendLoopCountInput = document.createElement('input')
+        sendLoopCountInput.type = 'number'
+        sendLoopCountInput.className = 'command-editor-panel-loop-count-input form-control form-control-sm'
+        sendLoopCountInput.min = '1'
+        sendLoopCountInput.step = '1'
+        sendLoopCountInput.value = String(this.getSendLoopCount())
 
-        sendGroup.append(intervalWrap, loopSendBtn, sendBtn)
+        const loopCountUnit = document.createElement('span')
+        loopCountUnit.className = 'command-editor-panel-interval-unit'
+        loopCountUnit.textContent = '×'
+
+        loopCountWrap.append(sendLoopCountInput, loopCountUnit)
+
+        const loopSendBtn = mkBtn('Loop')
+        loopSendBtn.title = 'F6/F7'
+
+        const sendBtn = mkBtn('Send', true)
+        sendBtn.title = 'F8/Enter'
+
+        sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, sendBtn)
         toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendGroup)
 
         const batchStatusBar = document.createElement('div')
@@ -575,7 +626,7 @@ export class CommandEditorPanelService {
         batchStatusCloseBtn.type = 'button'
         batchStatusCloseBtn.className = 'command-editor-panel-batch-status-close btn btn-sm btn-outline-secondary'
         batchStatusCloseBtn.textContent = '×'
-        batchStatusCloseBtn.title = 'Stop sending'
+        batchStatusCloseBtn.title = 'F7'
 
         batchStatusHeader.append(batchStatusLabel, batchStatusCloseBtn)
 
@@ -623,8 +674,9 @@ export class CommandEditorPanelService {
         batchStatusCloseBtn.addEventListener('mousedown', (event: MouseEvent) => {
             event.preventDefault()
         })
-        batchStatusCloseBtn.addEventListener('click', () => this.cancelBatchSend())
+        batchStatusCloseBtn.addEventListener('click', () => this.cancelLoopSend())
         sendIntervalInput.addEventListener('change', () => this.persistSendIntervalInput(sendIntervalInput))
+        sendLoopCountInput.addEventListener('change', () => this.persistSendLoopCountInput(sendLoopCountInput))
 
         this.setupEditorKeybindings(editor, root)
 
@@ -645,6 +697,7 @@ export class CommandEditorPanelService {
             editor,
             fileLabel,
             sendIntervalInput,
+            sendLoopCountInput,
             loopSendBtn,
             batchStatusBar,
             batchStatusHeader,
@@ -1243,7 +1296,7 @@ export class CommandEditorPanelService {
             #${BAR_ID} .command-editor-panel-send-group {
                 display: flex;
                 align-items: center;
-                gap: 6px;
+                gap: 4px;
                 margin-left: auto;
                 flex: none;
             }
@@ -1251,20 +1304,27 @@ export class CommandEditorPanelService {
             #${BAR_ID} .command-editor-panel-interval {
                 display: inline-flex;
                 align-items: center;
-                gap: 4px;
+                gap: 2px;
                 margin: 0;
                 flex: none;
             }
 
             #${BAR_ID} .command-editor-panel-interval-input {
-                width: 72px;
-                padding: 2px 6px;
-                font-size: 12px;
+                width: 52px;
+                padding: 1px 4px;
+                font-size: 11px;
+                font-family: monospace;
+            }
+
+            #${BAR_ID} .command-editor-panel-loop-count-input {
+                width: 36px;
+                padding: 1px 4px;
+                font-size: 11px;
                 font-family: monospace;
             }
 
             #${BAR_ID} .command-editor-panel-interval-unit {
-                font-size: 12px;
+                font-size: 11px;
                 color: var(--bs-secondary-color, #aaa);
             }
 
@@ -1490,17 +1550,81 @@ export class CommandEditorPanelService {
         }
     }
 
-    private showBatchStatus (state: PanelState, lines: string[], index: number): void {
-        state.batchStatusLabel.textContent = `Loop sending ${index + 1}/${lines.length}`
-        this.renderBatchPreview(state, lines, index)
+    private parseLoopCountInput (value: string): number | null {
+        const trimmed = value.trim()
+        if (!trimmed) {
+            return null
+        }
+
+        const parsed = Number(trimmed)
+        if (!Number.isFinite(parsed) || parsed < 1 || !Number.isInteger(parsed)) {
+            return null
+        }
+
+        return parsed
+    }
+
+    private readSendLoopCount (state: PanelState): number {
+        const parsed = this.parseLoopCountInput(state.sendLoopCountInput.value)
+        if (parsed !== null) {
+            return parsed
+        }
+
+        return this.getSendLoopCount()
+    }
+
+    private persistSendLoopCountInput (input: HTMLInputElement): void {
+        const parsed = this.parseLoopCountInput(input.value)
+        if (parsed === null) {
+            input.value = String(this.getSendLoopCount())
+            return
+        }
+
+        input.value = String(parsed)
+        if (!this.config.store.commandEditor) {
+            return
+        }
+
+        this.config.store.commandEditor.sendLoopCount = parsed
+        this.config.save()
+    }
+
+    private formatBatchStatusLabel (
+        round: number,
+        loopCount: number,
+        lineIndex: number,
+        lineCount: number,
+    ): string {
+        if (loopCount <= 1) {
+            return `Loop ${lineIndex + 1}/${lineCount}`
+        }
+
+        return `Loop ${round + 1}/${loopCount} · ${lineIndex + 1}/${lineCount}`
+    }
+
+    private showBatchStatus (
+        state: PanelState,
+        lines: string[],
+        lineIndex: number,
+        round: number,
+        loopCount: number,
+    ): void {
+        state.batchStatusLabel.textContent = this.formatBatchStatusLabel(round, loopCount, lineIndex, lines.length)
+        this.renderBatchPreview(state, lines, lineIndex)
         state.batchStatusBar.classList.add('active')
         state.batchStatusBar.style.display = 'flex'
         state.loopSendBtn.disabled = true
     }
 
-    private updateBatchStatus (state: PanelState, lines: string[], index: number): void {
-        state.batchStatusLabel.textContent = `Loop sending ${index + 1}/${lines.length}`
-        this.renderBatchPreview(state, lines, index)
+    private updateBatchStatus (
+        state: PanelState,
+        lines: string[],
+        lineIndex: number,
+        round: number,
+        loopCount: number,
+    ): void {
+        state.batchStatusLabel.textContent = this.formatBatchStatusLabel(round, loopCount, lineIndex, lines.length)
+        this.renderBatchPreview(state, lines, lineIndex)
     }
 
     private hideBatchStatus (state: PanelState): void {
@@ -1509,6 +1633,14 @@ export class CommandEditorPanelService {
         state.batchStatusLabel.textContent = ''
         state.batchStatusPreview.replaceChildren()
         state.loopSendBtn.disabled = false
+    }
+
+    private getSendLoopCount (): number {
+        const value = this.config.store.commandEditor?.sendLoopCount
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 1 && Number.isInteger(value)) {
+            return value
+        }
+        return 1
     }
 
     private getSendLineIntervalSec (): number {

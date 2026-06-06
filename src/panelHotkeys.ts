@@ -28,6 +28,9 @@ export class CommandEditorPanelHotkeyHandler {
                 case 'send-command-editor-lines':
                     await this.panelService.sendLinesWithInterval()
                     break
+                case 'cancel-command-editor-loop':
+                    this.panelService.cancelLoopSend()
+                    break
             }
         })
     }

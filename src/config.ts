@@ -8,6 +8,8 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             lastOpenedFile: null as string | null,
             /** Seconds to wait after each line when batch-sending (e.g. 0.05 = 50ms). */
             sendLineIntervalSec: 1,
+            /** How many times to repeat the selected lines in loop send. */
+            sendLoopCount: 1,
         },
         hotkeys: {
             'toggle-command-editor-panel': [],
@@ -16,6 +18,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             'save-command-editor-file': [],
             'reload-command-editor-file': [],
             'send-command-editor-lines': [],
+            'cancel-command-editor-loop': [],
             'command-tips': {
                 __nonStructural: true,
                 toggle: [],
@@ -36,6 +39,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'save-command-editor-file': ['Ctrl-S'],
                 'reload-command-editor-file': ['F5'],
                 'send-command-editor-lines': ['F6'],
+                'cancel-command-editor-loop': ['F7'],
             },
         },
         [Platform.Windows]: {
@@ -46,6 +50,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'save-command-editor-file': ['Ctrl-S'],
                 'reload-command-editor-file': ['F5'],
                 'send-command-editor-lines': ['F6'],
+                'cancel-command-editor-loop': ['F7'],
             },
         },
         [Platform.Linux]: {
@@ -56,6 +61,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'save-command-editor-file': ['Ctrl-S'],
                 'reload-command-editor-file': ['F5'],
                 'send-command-editor-lines': ['F6'],
+                'cancel-command-editor-loop': ['F7'],
             },
         },
     }

@@ -26,7 +26,11 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
         },
         {
             id: 'send-command-editor-lines',
-            name: this.translate.instant('Send command editor lines with interval'),
+            name: this.translate.instant('Loop command editor lines'),
+        },
+        {
+            id: 'cancel-command-editor-loop',
+            name: this.translate.instant('Stop command editor loop'),
         },
     ]
 
