@@ -14,7 +14,9 @@ export class CommandEditorPanelHotkeyHandler {
                     await this.panelService.togglePanel()
                     break
                 case 'send-command-line':
-                    this.panelService.sendFromPanel()
+                    if (this.panelService.isPanelVisible() && !this.panelService.isEditorFocused()) {
+                        this.panelService.sendFromPanel()
+                    }
                     break
                 case 'open-command-editor-file':
                     await this.panelService.openFile()

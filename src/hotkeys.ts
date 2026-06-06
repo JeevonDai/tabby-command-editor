@@ -10,7 +10,7 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
         },
         {
             id: 'send-command-line',
-            name: this.translate.instant('Send command line to terminal'),
+            name: this.translate.instant('Send command line to terminal (F8 when panel toolbar focused)'),
         },
         {
             id: 'open-command-editor-file',

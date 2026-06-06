@@ -25,21 +25,21 @@ export class CommandEditorConfigProvider extends ConfigProvider {
         [Platform.macOS]: {
             hotkeys: {
                 'toggle-command-editor-panel': ['Ctrl-E'],
-                'send-command-line': ['Ctrl-Enter'],
+                'send-command-line': ['F8'],
                 'open-command-editor-file': ['Ctrl-O'],
             },
         },
         [Platform.Windows]: {
             hotkeys: {
                 'toggle-command-editor-panel': ['Ctrl-E'],
-                'send-command-line': ['Ctrl-Enter'],
+                'send-command-line': ['F8'],
                 'open-command-editor-file': ['Ctrl-O'],
             },
         },
         [Platform.Linux]: {
             hotkeys: {
                 'toggle-command-editor-panel': ['Ctrl-E'],
-                'send-command-line': ['Ctrl-Enter'],
+                'send-command-line': ['F8'],
                 'open-command-editor-file': ['Ctrl-O'],
             },
         },

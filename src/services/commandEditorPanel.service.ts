@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core'
-import { AppService, ConfigService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
+import { AppService, ConfigService, HotkeysService, NotificationsService, SplitTabComponent, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
@@ -26,6 +26,8 @@ interface PanelState {
 export class CommandEditorPanelService {
     private panel: PanelState | null = null
     private pendingLastOpenedFile: string | null = null
+    private editorFocused = false
+    private hotkeysSuspended = false
     private hostLayoutBackup: {
         paddingRight: string
         paddingBottom: string
@@ -45,7 +47,7 @@ export class CommandEditorPanelService {
     constructor (
         private app: AppService,
         private config: ConfigService,
-        private platform: PlatformService,
+        private hotkeys: HotkeysService,
         private notifications: NotificationsService,
         private translate: TranslateService,
     ) {
@@ -59,6 +61,14 @@ export class CommandEditorPanelService {
 
     isOverlayVisible (_tab: BaseTerminalTabComponent<any>): boolean {
         return this.panel?.visible ?? false
+    }
+
+    isPanelVisible (): boolean {
+        return this.panel?.visible ?? false
+    }
+
+    isEditorFocused (): boolean {
+        return this.editorFocused && (this.panel?.visible ?? false)
     }
 
     getActiveTerminalTab (): BaseTerminalTabComponent<any> | null {
@@ -212,6 +222,7 @@ export class CommandEditorPanelService {
         fileLabel.className = 'command-editor-panel-file-label'
         fileLabel.title = ''
         const sendBtn = mkBtn('Send line', true)
+        sendBtn.title = 'Enter / F8 to send, Shift+Enter for newline'
         toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendBtn)
 
         const editorHost = document.createElement('div')
@@ -246,11 +257,15 @@ export class CommandEditorPanelService {
         closeBtn.addEventListener('click', () => this.closeFile())
         sendBtn.addEventListener('click', () => this.sendFromPanel())
 
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => this.sendFromPanel())
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO, () => this.openFile())
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => this.saveFile())
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => {
-            this.pasteIntoEditor(editor)
+        this.setupEditorKeybindings(editor)
+
+        editor.onDidFocusEditorWidget(() => {
+            this.editorFocused = true
+            this.suspendGlobalHotkeys()
+        })
+        editor.onDidBlurEditorWidget(() => {
+            this.editorFocused = false
+            this.resumeGlobalHotkeys()
         })
 
         this.panel = { root, editorHost, editor, fileLabel, filePath: null, visible: false, layoutAdjusted: false }
@@ -361,6 +376,8 @@ export class CommandEditorPanelService {
         state.visible = false
         state.root.remove()
         state.editor.updateOptions({ automaticLayout: false })
+        this.editorFocused = false
+        this.resumeGlobalHotkeys()
         document.body.classList.remove(BODY_CLASS)
         delete document.body.dataset.commandEditorPanelPosition
         window.removeEventListener('resize', this.onWindowResize)
@@ -398,6 +415,45 @@ export class CommandEditorPanelService {
             const panelHeight = state.root.offsetHeight || Math.round(host.clientHeight * 0.38)
             host.style.paddingBottom = `${panelHeight + broadcastHeight}px`
         }
+    }
+
+    private setupEditorKeybindings (editor: monaco.editor.IStandaloneCodeEditor): void {
+        const send = () => this.sendFromPanel()
+        const insertNewline = () => {
+            const selection = editor.getSelection()
+            if (!selection) {
+                return
+            }
+            editor.executeEdits('insert-newline', [{
+                range: selection,
+                text: '\n',
+                forceMoveMarkers: true,
+            }])
+        }
+
+        const editorContext = 'editorTextFocus && !findWidgetVisible && !suggestWidgetVisible'
+
+        editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
+        editor.addCommand(monaco.KeyCode.F8, send, editorContext)
+        editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, insertNewline, editorContext)
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO, () => this.openFile())
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => this.saveFile())
+    }
+
+    private suspendGlobalHotkeys (): void {
+        if (this.hotkeysSuspended) {
+            return
+        }
+        this.hotkeys.disable()
+        this.hotkeysSuspended = true
+    }
+
+    private resumeGlobalHotkeys (): void {
+        if (!this.hotkeysSuspended) {
+            return
+        }
+        this.hotkeys.enable()
+        this.hotkeysSuspended = false
     }
 
     /** Tell xterm/Tabby to reflow without re-entering our resize handler */
@@ -529,17 +585,6 @@ export class CommandEditorPanelService {
         for (const line of lines) {
             terminal.sendInput(line)
             terminal.sendInput('\r')
-        }
-    }
-
-    private pasteIntoEditor (editor: monaco.editor.IStandaloneCodeEditor): void {
-        const text = this.platform.readClipboard()
-        if (!text) {
-            return
-        }
-        const selection = editor.getSelection()
-        if (selection) {
-            editor.executeEdits('paste', [{ range: selection, text, forceMoveMarkers: true }])
         }
     }
 
