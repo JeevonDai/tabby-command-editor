@@ -274,6 +274,29 @@ export class CommandEditorPanelService {
         this.notifications.notice(this.translate.instant('File saved'))
     }
 
+    async reloadFile (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
+        const state = this.ensurePanel()
+        if (!state.visible) {
+            this.showPanel(state)
+        }
+
+        const filePath = state.filePath ?? this.config.store.commandEditor?.lastOpenedFile ?? null
+        if (!filePath || typeof filePath !== 'string') {
+            this.notifications.info(this.translate.instant('No file open'))
+            return
+        }
+
+        if (!this.loadFileFromPath(state, filePath)) {
+            this.notifications.error(this.translate.instant('File not found'))
+            return
+        }
+
+        this.persistLastOpenedFile(filePath)
+        this.notifications.notice(this.translate.instant('File reloaded'))
+        state.editor.layout()
+        state.editor.focus()
+    }
+
     sendFromPanel (_terminal?: BaseTerminalTabComponent<any> | null): void {
         const state = this.panel
         const terminalTab = this.getActiveTerminalTab()

@@ -12,6 +12,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             'find-in-command-editor': [],
             'open-command-editor-file': [],
             'save-command-editor-file': [],
+            'reload-command-editor-file': [],
             'command-tips': {
                 __nonStructural: true,
                 toggle: [],
@@ -30,6 +31,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'find-in-command-editor': ['Ctrl-F'],
                 'open-command-editor-file': ['Ctrl-O'],
                 'save-command-editor-file': ['Ctrl-S'],
+                'reload-command-editor-file': ['F5'],
             },
         },
         [Platform.Windows]: {
@@ -38,6 +40,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'find-in-command-editor': ['Ctrl-F'],
                 'open-command-editor-file': ['Ctrl-O'],
                 'save-command-editor-file': ['Ctrl-S'],
+                'reload-command-editor-file': ['F5'],
             },
         },
         [Platform.Linux]: {
@@ -46,6 +49,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'find-in-command-editor': ['Ctrl-F'],
                 'open-command-editor-file': ['Ctrl-O'],
                 'save-command-editor-file': ['Ctrl-S'],
+                'reload-command-editor-file': ['F5'],
             },
         },
     }

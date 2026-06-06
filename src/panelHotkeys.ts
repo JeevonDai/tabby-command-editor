@@ -22,6 +22,9 @@ export class CommandEditorPanelHotkeyHandler {
                 case 'save-command-editor-file':
                     await this.panelService.saveFile()
                     break
+                case 'reload-command-editor-file':
+                    await this.panelService.reloadFile()
+                    break
             }
         })
     }

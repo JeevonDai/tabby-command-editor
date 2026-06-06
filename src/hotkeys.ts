@@ -20,6 +20,10 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
             id: 'save-command-editor-file',
             name: this.translate.instant('Save file in command editor'),
         },
+        {
+            id: 'reload-command-editor-file',
+            name: this.translate.instant('Reload file in command editor'),
+        },
     ]
 
     constructor (private translate: TranslateService) { super() }
