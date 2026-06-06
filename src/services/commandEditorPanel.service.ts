@@ -17,6 +17,7 @@ const PANEL_SIZE_VAR = '--tabby-command-editor-panel-size'
 const CONTENT_TAB_SELECTOR = 'app-root .content > .content > .content-tab.content-tab-active, app-root > .content > .content > .content-tab.content-tab-active'
 const PLUGIN_BUILD_ID = '20260530-loop5'
 const SEND_INTERVAL_STEP_SEC = 0.01
+const TOGGLE_PANEL_HOTKEY_ID = 'toggle-command-editor-panel'
 
 type PanelPosition = 'bottom' | 'right'
 
@@ -86,6 +87,22 @@ export class CommandEditorPanelService {
         document.body.style.userSelect = ''
         this.persistPanelSize()
     }
+    private readonly onToggleHotkeyCapture = (event: KeyboardEvent): void => {
+        if (event.type !== 'keydown' || event.repeat) {
+            return
+        }
+
+        if (!this.matchesConfiguredHotkey(event, TOGGLE_PANEL_HOTKEY_ID)) {
+            return
+        }
+
+        // xterm handles keydown on the focused terminal before Tabby hotkey bubble runs,
+        // so Ctrl+E would reach the serial session as 0x05 (ENQ) unless we swallow it here.
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        void this.togglePanel()
+    }
+
     private readonly onDocumentKeyCapture = (event: KeyboardEvent): void => {
         if (!this.panel?.visible || !this.editorFocused) {
             return
@@ -175,6 +192,7 @@ export class CommandEditorPanelService {
         private translate: TranslateService,
         private zone: NgZone,
     ) {
+        document.addEventListener('keydown', this.onToggleHotkeyCapture, true)
         document.addEventListener('keydown', this.onDocumentKeyCapture, true)
         this.app.ready$.subscribe(() => {
             const filePath = this.config.store.commandEditor?.lastOpenedFile
@@ -1576,6 +1594,70 @@ export class CommandEditorPanelService {
         const next = Math.max(0, Math.round((current + deltaSec) * 100) / 100)
         input.value = this.formatIntervalSecForInput(next)
         this.persistSendIntervalInput(input)
+    }
+
+    private matchesConfiguredHotkey (event: KeyboardEvent, hotkeyId: string): boolean {
+        const raw = (this.config.store.hotkeys as Record<string, string[] | string[][] | undefined> | undefined)?.[hotkeyId]
+        if (!raw?.length) {
+            return false
+        }
+
+        const sequences = typeof raw[0] === 'string'
+            ? [raw as string[]]
+            : raw as string[][]
+
+        const stroke = this.eventToKeystroke(event)
+        if (!stroke) {
+            return false
+        }
+
+        return sequences.some(sequence => sequence[sequence.length - 1] === stroke)
+    }
+
+    /** Match Tabby hotkey stroke names (e.g. Ctrl-E) from a keydown event. */
+    private eventToKeystroke (event: KeyboardEvent): string | null {
+        if (['Control', 'Meta', 'Alt', 'Shift'].includes(event.key)) {
+            return null
+        }
+
+        const parts: string[] = []
+        if (event.ctrlKey) {
+            parts.push('Ctrl')
+        }
+        if (event.metaKey) {
+            parts.push(process.platform === 'darwin' ? '⌘' : process.platform === 'win32' ? 'Win' : 'Super')
+        }
+        if (event.altKey) {
+            parts.push(process.platform === 'darwin' ? '⌥' : 'Alt')
+        }
+        if (event.shiftKey) {
+            parts.push('Shift')
+        }
+
+        let key = event.code
+        if (/^[a-z]$/i.test(event.key) && event.key.length === 1) {
+            key = event.key.toUpperCase()
+        } else {
+            key = key
+                .replace('Key', '')
+                .replace('Arrow', '')
+                .replace('Digit', '')
+            key = ({
+                Comma: ',',
+                Period: '.',
+                Slash: '/',
+                Backslash: '\\',
+                Minus: '-',
+                Equal: '=',
+                Semicolon: ';',
+                Quote: '\'',
+                BracketLeft: '[',
+                BracketRight: ']',
+            } as Record<string, string>)[key] ?? key
+        }
+
+        parts.push(key)
+        return parts.join('-')
     }
 
     private parseIntervalInput (value: string): number | null {

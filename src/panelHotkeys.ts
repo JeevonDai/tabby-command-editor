@@ -10,9 +10,6 @@ export class CommandEditorPanelHotkeyHandler {
     ) {
         this.hotkeys.hotkey$.subscribe(async hotkey => {
             switch (hotkey) {
-                case 'toggle-command-editor-panel':
-                    await this.panelService.togglePanel()
-                    break
                 case 'find-in-command-editor':
                     await this.panelService.openFindWidget()
                     break
