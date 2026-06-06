@@ -6,6 +6,8 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             panelPosition: 'right',
             panelSize: null as number | null,
             lastOpenedFile: null as string | null,
+            /** Seconds to wait after each line when batch-sending (e.g. 0.05 = 50ms). */
+            sendLineIntervalSec: 1,
         },
         hotkeys: {
             'toggle-command-editor-panel': [],
@@ -13,6 +15,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             'open-command-editor-file': [],
             'save-command-editor-file': [],
             'reload-command-editor-file': [],
+            'send-command-editor-lines': [],
             'command-tips': {
                 __nonStructural: true,
                 toggle: [],
@@ -32,6 +35,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'open-command-editor-file': ['Ctrl-O'],
                 'save-command-editor-file': ['Ctrl-S'],
                 'reload-command-editor-file': ['F5'],
+                'send-command-editor-lines': ['F6'],
             },
         },
         [Platform.Windows]: {
@@ -41,6 +45,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'open-command-editor-file': ['Ctrl-O'],
                 'save-command-editor-file': ['Ctrl-S'],
                 'reload-command-editor-file': ['F5'],
+                'send-command-editor-lines': ['F6'],
             },
         },
         [Platform.Linux]: {
@@ -50,6 +55,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'open-command-editor-file': ['Ctrl-O'],
                 'save-command-editor-file': ['Ctrl-S'],
                 'reload-command-editor-file': ['F5'],
+                'send-command-editor-lines': ['F6'],
             },
         },
     }

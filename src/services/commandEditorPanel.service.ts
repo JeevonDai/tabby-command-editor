@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core'
+import { Injectable, NgZone } from '@angular/core'
 import { Subscription } from 'rxjs'
 import { AppService, ConfigService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
@@ -15,6 +15,7 @@ const BROADCAST_BAR_ID = 'tabby-broadcast-input-bar'
 const TAB_CONTENT_SELECTOR = 'app-root > .content > .content'
 const PANEL_SIZE_VAR = '--tabby-command-editor-panel-size'
 const CONTENT_TAB_SELECTOR = 'app-root .content > .content > .content-tab.content-tab-active, app-root > .content > .content > .content-tab.content-tab-active'
+const PLUGIN_BUILD_ID = '20260530-loop3'
 
 type PanelPosition = 'bottom' | 'right'
 
@@ -24,6 +25,13 @@ interface PanelState {
     editorHost: HTMLElement
     editor: monaco.editor.IStandaloneCodeEditor
     fileLabel: HTMLElement
+    sendIntervalInput: HTMLInputElement
+    loopSendBtn: HTMLButtonElement
+    batchStatusBar: HTMLElement
+    batchStatusHeader: HTMLElement
+    batchStatusLabel: HTMLElement
+    batchStatusPreview: HTMLElement
+    batchStatusCloseBtn: HTMLButtonElement
     filePath: string | null
     visible: boolean
     panelSizePx: number
@@ -39,6 +47,9 @@ export class CommandEditorPanelService {
     private layoutAdjusted = false
     private tabAreaObserver: ResizeObserver | null = null
     private activeTabSubscription: Subscription | null = null
+    private batchSendJobId = 0
+    private savedEditorSelection: monaco.Selection | null = null
+    private targetTerminalTab: BaseTerminalTabComponent<any> | null = null
     private suppressResizeHandler = false
     private panelResizeDrag: {
         active: boolean
@@ -160,6 +171,7 @@ export class CommandEditorPanelService {
         private platform: PlatformService,
         private notifications: NotificationsService,
         private translate: TranslateService,
+        private zone: NgZone,
     ) {
         document.addEventListener('keydown', this.onDocumentKeyCapture, true)
         this.app.ready$.subscribe(() => {
@@ -185,7 +197,7 @@ export class CommandEditorPanelService {
     openFindWidget (): void {
         const state = this.ensurePanel()
         if (!state.visible) {
-            this.showPanel(state)
+            this.showPanel(state, this.getActiveTerminalTab())
         }
         state.editor.focus()
         state.editor.getAction('actions.find')?.run()
@@ -211,7 +223,7 @@ export class CommandEditorPanelService {
                 this.hidePanel(state)
                 return
             }
-            this.showPanel(state)
+            this.showPanel(state, terminal ?? this.getActiveTerminalTab())
         } catch (err) {
             console.error('[CommandEditorPanel] Failed to toggle panel:', err)
             this.notifications.error(this.translate.instant('Failed to open command editor panel'))
@@ -221,7 +233,7 @@ export class CommandEditorPanelService {
     async openFile (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
         const state = this.ensurePanel()
         if (!state.visible) {
-            this.showPanel(state)
+            this.showPanel(state, this.getActiveTerminalTab())
         }
 
         // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -247,7 +259,7 @@ export class CommandEditorPanelService {
     async saveFile (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
         const state = this.ensurePanel()
         if (!state.visible) {
-            this.showPanel(state)
+            this.showPanel(state, this.getActiveTerminalTab())
         }
 
         let filePath = state.filePath
@@ -277,7 +289,7 @@ export class CommandEditorPanelService {
     async reloadFile (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
         const state = this.ensurePanel()
         if (!state.visible) {
-            this.showPanel(state)
+            this.showPanel(state, this.getActiveTerminalTab())
         }
 
         const filePath = state.filePath ?? this.config.store.commandEditor?.lastOpenedFile ?? null
@@ -299,8 +311,11 @@ export class CommandEditorPanelService {
 
     sendFromPanel (_terminal?: BaseTerminalTabComponent<any> | null): void {
         const state = this.panel
-        const terminalTab = this.getActiveTerminalTab()
+        const terminalTab = _terminal ?? this.resolveTerminalForSend()
         if (!state?.visible || !terminalTab) {
+            if (!terminalTab) {
+                this.notifications.info(this.translate.instant('No active terminal'))
+            }
             return
         }
 
@@ -311,6 +326,135 @@ export class CommandEditorPanelService {
         }
 
         this.sendToTerminal(terminalTab, text)
+    }
+
+    async sendLinesWithInterval (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
+        const state = this.panel
+        if (!state?.visible) {
+            return
+        }
+
+        if (!state.batchStatusBar || !state.sendIntervalInput) {
+            this.notifications.error(this.translate.instant('Loop send failed'))
+            console.warn('[CommandEditorPanel] Panel UI outdated — close and reopen the panel (Ctrl+E)')
+            return
+        }
+
+        const terminalTab = _terminal ?? this.resolveTerminalForSend()
+        if (!terminalTab) {
+            this.notifications.info(this.translate.instant('No active terminal'))
+            return
+        }
+
+        if (!terminalTab.session) {
+            this.notifications.error(this.translate.instant('Terminal session not ready'))
+            console.warn('[CommandEditorPanel] Loop send blocked: terminal.session is null')
+            return
+        }
+
+        const lines = this.getLoopSendLines(state.editor)
+        if (lines.length === 0) {
+            this.notifications.info(this.translate.instant('Nothing to send'))
+            return
+        }
+
+        const intervalSec = this.readSendIntervalSec(state)
+        const delayMs = Math.max(0, intervalSec * 1000)
+
+        console.error('[CommandEditorPanel] Loop send start', {
+            build: PLUGIN_BUILD_ID,
+            lineCount: lines.length,
+            intervalSec,
+            delayMs,
+            hasSession: !!terminalTab.session,
+            terminalTitle: (terminalTab as { title?: string }).title ?? null,
+            lines,
+        })
+
+        this.notifications.info(`Loop send: ${lines.length} line(s), ${intervalSec}s interval [${PLUGIN_BUILD_ID}]`)
+
+        this.startLoopSendJob(state, terminalTab, lines, delayMs)
+    }
+
+    private startLoopSendJob (
+        state: PanelState,
+        terminal: BaseTerminalTabComponent<any>,
+        lines: string[],
+        delayMs: number,
+    ): void {
+        const jobId = ++this.batchSendJobId
+
+        this.showBatchStatus(state, lines, 0)
+        state.editor.layout()
+
+        let sentCount = 0
+
+        const finish = (): void => {
+            if (jobId !== this.batchSendJobId) {
+                return
+            }
+            this.hideBatchStatus(state)
+            state.editor.layout()
+            if (sentCount > 0) {
+                this.notifications.notice(`${this.translate.instant('Lines sent')} (${sentCount})`)
+            } else {
+                this.notifications.error(this.translate.instant('Loop send failed'))
+                console.error('[CommandEditorPanel] Loop send finished without sending any line')
+            }
+        }
+
+        const scheduleNext = (nextIndex: number): void => {
+            const delay = nextIndex >= lines.length ? 0 : delayMs
+            this.zone.runOutsideAngular(() => {
+                window.setTimeout(() => {
+                    this.zone.run(() => sendAt(nextIndex))
+                }, delay)
+            })
+        }
+
+        const sendAt = (index: number): void => {
+            if (jobId !== this.batchSendJobId) {
+                return
+            }
+
+            if (index >= lines.length) {
+                finish()
+                return
+            }
+
+            const activeTerminal = this.isTerminalTabAlive(terminal) ? terminal : this.resolveTerminalForSend()
+            if (!activeTerminal?.session) {
+                this.cancelBatchSend()
+                this.notifications.info(this.translate.instant('No active terminal'))
+                console.error('[CommandEditorPanel] Loop send stopped: terminal gone at line', index + 1)
+                return
+            }
+
+            this.updateBatchStatus(state, lines, index)
+
+            try {
+                this.sendLineToTerminal(activeTerminal, lines[index])
+                sentCount++
+                console.error('[CommandEditorPanel] Loop send line', index + 1, '/', lines.length, lines[index])
+            } catch (err) {
+                console.error('[CommandEditorPanel] Loop send failed:', err)
+                this.cancelBatchSend()
+                this.notifications.error(this.translate.instant('Loop send failed'))
+                return
+            }
+
+            scheduleNext(index + 1)
+        }
+
+        this.zone.run(() => sendAt(0))
+    }
+
+    private cancelBatchSend (): void {
+        this.batchSendJobId++
+        if (this.panel) {
+            this.hideBatchStatus(this.panel)
+            this.panel.editor.layout()
+        }
     }
 
     closeFile (): void {
@@ -337,6 +481,11 @@ export class CommandEditorPanelService {
     }
 
     private ensurePanel (): PanelState {
+        if (this.panel && !this.panel.batchStatusPreview) {
+            this.panel.root.remove()
+            this.panel = null
+        }
+
         if (this.panel) {
             return this.panel
         }
@@ -383,14 +532,62 @@ export class CommandEditorPanelService {
         const fileLabel = document.createElement('span')
         fileLabel.className = 'command-editor-panel-file-label'
         fileLabel.title = ''
+
+        const sendGroup = document.createElement('div')
+        sendGroup.className = 'command-editor-panel-send-group'
+
+        const intervalWrap = document.createElement('label')
+        intervalWrap.className = 'command-editor-panel-interval'
+        intervalWrap.title = 'Interval between lines (seconds)'
+
+        const sendIntervalInput = document.createElement('input')
+        sendIntervalInput.type = 'number'
+        sendIntervalInput.className = 'command-editor-panel-interval-input form-control form-control-sm'
+        sendIntervalInput.min = '0'
+        sendIntervalInput.step = '0.001'
+        sendIntervalInput.value = String(this.getSendLineIntervalSec())
+
+        const intervalUnit = document.createElement('span')
+        intervalUnit.className = 'command-editor-panel-interval-unit'
+        intervalUnit.textContent = 's'
+
+        intervalWrap.append(sendIntervalInput, intervalUnit)
+
+        const loopSendBtn = mkBtn('Loop send')
+        loopSendBtn.title = `Send selected lines with interval (F6) [${PLUGIN_BUILD_ID}]`
+
         const sendBtn = mkBtn('Send line', true)
         sendBtn.title = 'Enter / F8'
-        toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendBtn)
+
+        sendGroup.append(intervalWrap, loopSendBtn, sendBtn)
+        toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendGroup)
+
+        const batchStatusBar = document.createElement('div')
+        batchStatusBar.className = 'command-editor-panel-batch-status'
+
+        const batchStatusHeader = document.createElement('div')
+        batchStatusHeader.className = 'command-editor-panel-batch-status-header'
+
+        const batchStatusLabel = document.createElement('span')
+        batchStatusLabel.className = 'command-editor-panel-batch-status-label'
+
+        const batchStatusCloseBtn = document.createElement('button')
+        batchStatusCloseBtn.type = 'button'
+        batchStatusCloseBtn.className = 'command-editor-panel-batch-status-close btn btn-sm btn-outline-secondary'
+        batchStatusCloseBtn.textContent = '×'
+        batchStatusCloseBtn.title = 'Stop sending'
+
+        batchStatusHeader.append(batchStatusLabel, batchStatusCloseBtn)
+
+        const batchStatusPreview = document.createElement('div')
+        batchStatusPreview.className = 'command-editor-panel-batch-status-preview'
+
+        batchStatusBar.append(batchStatusHeader, batchStatusPreview)
 
         const editorHost = document.createElement('div')
         editorHost.className = 'command-editor-panel-editor-host'
 
-        root.append(resizeHandle, toolbar, editorHost)
+        root.append(resizeHandle, toolbar, batchStatusBar, editorHost)
 
         const editor = monaco.editor.create(editorHost, {
             value: '',
@@ -418,9 +615,22 @@ export class CommandEditorPanelService {
         saveBtn.addEventListener('click', () => this.saveFile())
         closeBtn.addEventListener('click', () => this.closeFile())
         sendBtn.addEventListener('click', () => this.sendFromPanel())
+        loopSendBtn.addEventListener('mousedown', (event: MouseEvent) => {
+            event.preventDefault()
+            this.savedEditorSelection = editor.getSelection()
+        })
+        loopSendBtn.addEventListener('click', () => void this.sendLinesWithInterval())
+        batchStatusCloseBtn.addEventListener('mousedown', (event: MouseEvent) => {
+            event.preventDefault()
+        })
+        batchStatusCloseBtn.addEventListener('click', () => this.cancelBatchSend())
+        sendIntervalInput.addEventListener('change', () => this.persistSendIntervalInput(sendIntervalInput))
 
         this.setupEditorKeybindings(editor, root)
 
+        editor.onDidChangeCursorSelection((event) => {
+            this.savedEditorSelection = event.selection
+        })
         editor.onDidFocusEditorWidget(() => {
             this.editorFocused = true
         })
@@ -434,6 +644,13 @@ export class CommandEditorPanelService {
             editorHost,
             editor,
             fileLabel,
+            sendIntervalInput,
+            loopSendBtn,
+            batchStatusBar,
+            batchStatusHeader,
+            batchStatusLabel,
+            batchStatusPreview,
+            batchStatusCloseBtn,
             filePath: null,
             visible: false,
             panelSizePx: 0,
@@ -591,7 +808,11 @@ export class CommandEditorPanelService {
         this.notifyTerminalLayoutChanged()
     }
 
-    private showPanel (state: PanelState): void {
+    private showPanel (
+        state: PanelState,
+        terminalHint?: BaseTerminalTabComponent<any> | null,
+    ): void {
+        this.targetTerminalTab = terminalHint ?? this.getActiveTerminalTab()
         this.mountPanel(state.root)
         window.addEventListener('mousemove', this.onPanelResizeMove)
         window.addEventListener('mouseup', this.onPanelResizeEnd)
@@ -612,6 +833,7 @@ export class CommandEditorPanelService {
 
     private hidePanel (state: PanelState): void {
         closeHeadingOutlinePicker()
+        this.cancelBatchSend()
         this.onPanelResizeEnd()
         window.removeEventListener('mousemove', this.onPanelResizeMove)
         window.removeEventListener('mouseup', this.onPanelResizeEnd)
@@ -625,6 +847,7 @@ export class CommandEditorPanelService {
         window.removeEventListener('resize', this.onWindowResize)
         this.stopTabAreaObserver()
         this.stopActiveTabWatcher()
+        this.targetTerminalTab = null
         this.restoreLayout(state)
         this.notifyTerminalLayoutChanged()
     }
@@ -668,6 +891,12 @@ export class CommandEditorPanelService {
             if (!this.panel?.visible) {
                 return
             }
+
+            if (this.targetTerminalTab && !this.isTerminalTabAlive(this.targetTerminalTab)) {
+                this.cancelBatchSend()
+                this.targetTerminalTab = this.getActiveTerminalTab()
+            }
+
             this.startTabAreaObserver()
             this.fitAllTerminals()
         })
@@ -919,9 +1148,7 @@ export class CommandEditorPanelService {
     }
 
     private installStyles (): void {
-        if (document.getElementById(STYLE_ID)) {
-            return
-        }
+        document.getElementById(STYLE_ID)?.remove()
 
         const style = document.createElement('style')
         style.id = STYLE_ID
@@ -1013,8 +1240,91 @@ export class CommandEditorPanelService {
                 border-bottom: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
             }
 
-            #${BAR_ID} .command-editor-panel-toolbar .btn-primary {
+            #${BAR_ID} .command-editor-panel-send-group {
+                display: flex;
+                align-items: center;
+                gap: 6px;
                 margin-left: auto;
+                flex: none;
+            }
+
+            #${BAR_ID} .command-editor-panel-interval {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                margin: 0;
+                flex: none;
+            }
+
+            #${BAR_ID} .command-editor-panel-interval-input {
+                width: 72px;
+                padding: 2px 6px;
+                font-size: 12px;
+                font-family: monospace;
+            }
+
+            #${BAR_ID} .command-editor-panel-interval-unit {
+                font-size: 12px;
+                color: var(--bs-secondary-color, #aaa);
+            }
+
+            #${BAR_ID} .command-editor-panel-batch-status {
+                display: none;
+                flex: none;
+                flex-direction: column;
+                align-items: stretch;
+                gap: 4px;
+                padding: 6px 8px;
+                font-size: 12px;
+                color: var(--bs-secondary-color, #ccc);
+                background: rgba(47, 140, 255, 0.12);
+                border-bottom: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.12));
+            }
+
+            #${BAR_ID} .command-editor-panel-batch-status.active {
+                display: flex;
+            }
+
+            #${BAR_ID} .command-editor-panel-batch-status-header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex: none;
+            }
+
+            #${BAR_ID} .command-editor-panel-batch-status-label {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-family: monospace;
+            }
+
+            #${BAR_ID} .command-editor-panel-batch-status-preview {
+                margin: 0;
+                max-height: 120px;
+                overflow: auto;
+                padding: 6px 8px;
+                border-radius: 3px;
+                background: rgba(0, 0, 0, 0.22);
+                color: var(--bs-body-color, #ddd);
+                font-family: monospace;
+                font-size: 11px;
+                line-height: 1.45;
+                white-space: pre-wrap;
+                word-break: break-word;
+            }
+
+            #${BAR_ID} .command-editor-panel-batch-status-preview .batch-line-current {
+                color: var(--bs-primary, #4da3ff);
+                font-weight: 600;
+            }
+
+            #${BAR_ID} .command-editor-panel-batch-status-close {
+                flex: none;
+                line-height: 1;
+                padding: 0 8px;
             }
 
             #${BAR_ID} .command-editor-panel-file-label {
@@ -1106,6 +1416,116 @@ export class CommandEditorPanelService {
         return model.getLineContent(position.lineNumber)
     }
 
+    /** Selected line(s): expands partial selection to full lines. */
+    private getSelectedLinesText (editor: monaco.editor.IStandaloneCodeEditor): string {
+        const model = editor.getModel()
+        if (!model) {
+            return ''
+        }
+
+        let selection = editor.getSelection()
+        if ((!selection || selection.isEmpty()) && this.savedEditorSelection) {
+            selection = this.savedEditorSelection
+        }
+        if (!selection) {
+            return ''
+        }
+
+        const startLine = selection.startLineNumber
+        const endLine = selection.endLineNumber
+        return model.getValueInRange(new monaco.Range(
+            startLine,
+            1,
+            endLine,
+            model.getLineMaxColumn(endLine),
+        ))
+    }
+
+    private parseIntervalInput (value: string): number | null {
+        const trimmed = value.trim()
+        if (!trimmed) {
+            return null
+        }
+
+        const parsed = Number(trimmed)
+        if (!Number.isFinite(parsed) || parsed < 0) {
+            return null
+        }
+
+        return parsed
+    }
+
+    private readSendIntervalSec (state: PanelState): number {
+        const parsed = this.parseIntervalInput(state.sendIntervalInput.value)
+        if (parsed !== null) {
+            return parsed
+        }
+
+        return this.getSendLineIntervalSec()
+    }
+
+    private persistSendIntervalInput (input: HTMLInputElement): void {
+        const parsed = this.parseIntervalInput(input.value)
+        if (parsed === null) {
+            input.value = String(this.getSendLineIntervalSec())
+            return
+        }
+
+        input.value = String(parsed)
+        if (!this.config.store.commandEditor) {
+            return
+        }
+
+        this.config.store.commandEditor.sendLineIntervalSec = parsed
+        this.config.save()
+    }
+
+    private renderBatchPreview (state: PanelState, lines: string[], currentIndex: number): void {
+        state.batchStatusPreview.replaceChildren()
+        for (let index = 0; index < lines.length; index++) {
+            const lineEl = document.createElement('div')
+            lineEl.className = index === currentIndex ? 'batch-line-current' : 'batch-line'
+            lineEl.textContent = lines[index]
+            state.batchStatusPreview.append(lineEl)
+        }
+    }
+
+    private showBatchStatus (state: PanelState, lines: string[], index: number): void {
+        state.batchStatusLabel.textContent = `Loop sending ${index + 1}/${lines.length}`
+        this.renderBatchPreview(state, lines, index)
+        state.batchStatusBar.classList.add('active')
+        state.batchStatusBar.style.display = 'flex'
+        state.loopSendBtn.disabled = true
+    }
+
+    private updateBatchStatus (state: PanelState, lines: string[], index: number): void {
+        state.batchStatusLabel.textContent = `Loop sending ${index + 1}/${lines.length}`
+        this.renderBatchPreview(state, lines, index)
+    }
+
+    private hideBatchStatus (state: PanelState): void {
+        state.batchStatusBar.classList.remove('active')
+        state.batchStatusBar.style.display = 'none'
+        state.batchStatusLabel.textContent = ''
+        state.batchStatusPreview.replaceChildren()
+        state.loopSendBtn.disabled = false
+    }
+
+    private getSendLineIntervalSec (): number {
+        const value = this.config.store.commandEditor?.sendLineIntervalSec
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+            return value
+        }
+        return 1
+    }
+
+    private sendLineToTerminal (terminal: BaseTerminalTabComponent<any>, line: string): void {
+        if (!terminal.session) {
+            throw new Error('Terminal session not ready')
+        }
+        terminal.sendInput(`${line}\r`)
+    }
+
     private sendToTerminal (terminal: BaseTerminalTabComponent<any>, command: string): void {
         let lines = command.replace(/\r\n/g, '\n').split('\n')
         while (lines.length > 1 && lines[lines.length - 1] === '') {
@@ -1116,9 +1536,58 @@ export class CommandEditorPanelService {
             if (!line.trim()) {
                 continue
             }
-            terminal.sendInput(line)
-            terminal.sendInput('\r')
+            this.sendLineToTerminal(terminal, line)
         }
+    }
+
+    private getLoopSendLines (editor: monaco.editor.IStandaloneCodeEditor): string[] {
+        let raw = this.getSelectedLinesText(editor).replace(/\r\n/g, '\n').trimEnd()
+        if (!raw.trim()) {
+            raw = editor.getModel()?.getValue().replace(/\r\n/g, '\n').trimEnd() ?? ''
+        }
+
+        if (!raw.trim()) {
+            return []
+        }
+
+        return stripComments(raw)
+            .split('\n')
+            .map(line => line.trimEnd())
+            .filter(line => line.trim().length > 0)
+    }
+
+    private resolveTerminalForSend (): BaseTerminalTabComponent<any> | null {
+        if (this.targetTerminalTab && this.isTerminalTabAlive(this.targetTerminalTab)) {
+            return this.targetTerminalTab
+        }
+
+        this.targetTerminalTab = this.getActiveTerminalTab()
+        return this.targetTerminalTab
+    }
+
+    private isTerminalTabAlive (terminal: BaseTerminalTabComponent<any>): boolean {
+        for (const tab of this.app.tabs) {
+            if (this.containsTerminalTab(tab, terminal)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private containsTerminalTab (root: unknown, target: BaseTerminalTabComponent<any>): boolean {
+        if (root === target) {
+            return true
+        }
+
+        if (root instanceof SplitTabComponent) {
+            for (const child of root.getAllTabs()) {
+                if (this.containsTerminalTab(child, target)) {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     private findTerminalInTab (tab: unknown): BaseTerminalTabComponent<any> | null {
@@ -1135,8 +1604,9 @@ export class CommandEditorPanelService {
                 }
             }
             for (const child of tab.getAllTabs()) {
-                if (child instanceof BaseTerminalTabComponent) {
-                    return child
+                const fromChild = this.findTerminalInTab(child)
+                if (fromChild) {
+                    return fromChild
                 }
             }
         }

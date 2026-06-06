@@ -24,6 +24,10 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
             id: 'reload-command-editor-file',
             name: this.translate.instant('Reload file in command editor'),
         },
+        {
+            id: 'send-command-editor-lines',
+            name: this.translate.instant('Send command editor lines with interval'),
+        },
     ]
 
     constructor (private translate: TranslateService) { super() }

@@ -25,6 +25,9 @@ export class CommandEditorPanelHotkeyHandler {
                 case 'reload-command-editor-file':
                     await this.panelService.reloadFile()
                     break
+                case 'send-command-editor-lines':
+                    await this.panelService.sendLinesWithInterval()
+                    break
             }
         })
     }
