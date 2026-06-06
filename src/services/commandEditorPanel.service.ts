@@ -16,6 +16,7 @@ const TAB_CONTENT_SELECTOR = 'app-root > .content > .content'
 const PANEL_SIZE_VAR = '--tabby-command-editor-panel-size'
 const CONTENT_TAB_SELECTOR = 'app-root .content > .content > .content-tab.content-tab-active, app-root > .content > .content > .content-tab.content-tab-active'
 const PLUGIN_BUILD_ID = '20260530-loop5'
+const SEND_INTERVAL_STEP_SEC = 0.01
 
 type PanelPosition = 'bottom' | 'right'
 
@@ -572,14 +573,14 @@ export class CommandEditorPanelService {
 
         const intervalWrap = document.createElement('label')
         intervalWrap.className = 'command-editor-panel-interval'
-        intervalWrap.title = 'Interval between lines (seconds)'
+        intervalWrap.title = 'Scroll to adjust interval (10ms step)'
 
         const sendIntervalInput = document.createElement('input')
         sendIntervalInput.type = 'number'
         sendIntervalInput.className = 'command-editor-panel-interval-input form-control form-control-sm'
         sendIntervalInput.min = '0'
-        sendIntervalInput.step = '0.001'
-        sendIntervalInput.value = String(this.getSendLineIntervalSec())
+        sendIntervalInput.step = String(SEND_INTERVAL_STEP_SEC)
+        sendIntervalInput.value = this.formatIntervalSecForInput(this.getSendLineIntervalSec())
 
         const intervalUnit = document.createElement('span')
         intervalUnit.className = 'command-editor-panel-interval-unit'
@@ -676,6 +677,10 @@ export class CommandEditorPanelService {
         })
         batchStatusCloseBtn.addEventListener('click', () => this.cancelLoopSend())
         sendIntervalInput.addEventListener('change', () => this.persistSendIntervalInput(sendIntervalInput))
+        sendIntervalInput.addEventListener('wheel', (event: WheelEvent) => {
+            event.preventDefault()
+            this.adjustIntervalInput(sendIntervalInput, event.deltaY < 0 ? SEND_INTERVAL_STEP_SEC : -SEND_INTERVAL_STEP_SEC)
+        }, { passive: false })
         sendLoopCountInput.addEventListener('change', () => this.persistSendLoopCountInput(sendLoopCountInput))
 
         this.setupEditorKeybindings(editor, root)
@@ -1314,6 +1319,21 @@ export class CommandEditorPanelService {
                 padding: 1px 4px;
                 font-size: 11px;
                 font-family: monospace;
+                color: var(--bs-body-color, #adb5bd);
+                background-color: var(--bs-tertiary-bg, rgba(255, 255, 255, 0.06));
+                border-color: var(--bs-border-color, rgba(255, 255, 255, 0.15));
+                -moz-appearance: textfield;
+            }
+
+            #${BAR_ID} .command-editor-panel-interval-input:focus {
+                color: var(--bs-body-color, #dee2e6);
+                background-color: var(--bs-body-bg, rgba(0, 0, 0, 0.25));
+            }
+
+            #${BAR_ID} .command-editor-panel-interval-input::-webkit-outer-spin-button,
+            #${BAR_ID} .command-editor-panel-interval-input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
             }
 
             #${BAR_ID} .command-editor-panel-loop-count-input {
@@ -1321,6 +1341,16 @@ export class CommandEditorPanelService {
                 padding: 1px 4px;
                 font-size: 11px;
                 font-family: monospace;
+                color: var(--bs-body-color, #adb5bd);
+                background-color: var(--bs-tertiary-bg, rgba(255, 255, 255, 0.06));
+                border-color: var(--bs-border-color, rgba(255, 255, 255, 0.15));
+                -moz-appearance: textfield;
+            }
+
+            #${BAR_ID} .command-editor-panel-loop-count-input::-webkit-outer-spin-button,
+            #${BAR_ID} .command-editor-panel-loop-count-input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
             }
 
             #${BAR_ID} .command-editor-panel-interval-unit {
@@ -1501,6 +1531,18 @@ export class CommandEditorPanelService {
         ))
     }
 
+    private formatIntervalSecForInput (sec: number): string {
+        const rounded = Math.round(Math.max(0, sec) * 100) / 100
+        return String(parseFloat(rounded.toFixed(2)))
+    }
+
+    private adjustIntervalInput (input: HTMLInputElement, deltaSec: number): void {
+        const current = this.parseIntervalInput(input.value) ?? this.getSendLineIntervalSec()
+        const next = Math.max(0, Math.round((current + deltaSec) * 100) / 100)
+        input.value = this.formatIntervalSecForInput(next)
+        this.persistSendIntervalInput(input)
+    }
+
     private parseIntervalInput (value: string): number | null {
         const trimmed = value.trim()
         if (!trimmed) {
@@ -1527,11 +1569,11 @@ export class CommandEditorPanelService {
     private persistSendIntervalInput (input: HTMLInputElement): void {
         const parsed = this.parseIntervalInput(input.value)
         if (parsed === null) {
-            input.value = String(this.getSendLineIntervalSec())
+            input.value = this.formatIntervalSecForInput(this.getSendLineIntervalSec())
             return
         }
 
-        input.value = String(parsed)
+        input.value = this.formatIntervalSecForInput(parsed)
         if (!this.config.store.commandEditor) {
             return
         }
