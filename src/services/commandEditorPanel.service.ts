@@ -2,6 +2,9 @@ import { Injectable } from '@angular/core'
 import { Subscription } from 'rxjs'
 import { AppService, ConfigService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
+import { stripComments, toggleMarkdownComment } from '../commandComments'
+import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandEditorTheme } from '../commandEditorLanguage'
+import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker } from '../commandOutline'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
 
@@ -28,6 +31,8 @@ interface PanelState {
 
 @Injectable()
 export class CommandEditorPanelService {
+    private static languageFeaturesRegistered = false
+
     private panel: PanelState | null = null
     private pendingLastOpenedFile: string | null = null
     private editorFocused = false
@@ -276,7 +281,7 @@ export class CommandEditorPanelService {
             return
         }
 
-        const text = this.getTextToSend(state.editor)
+        const text = stripComments(this.getTextToSend(state.editor))
         if (!text.trim()) {
             this.notifications.info(this.translate.instant('Nothing to send'))
             return
@@ -296,7 +301,7 @@ export class CommandEditorPanelService {
 
         const model = state.editor.getModel()
         if (model) {
-            monaco.editor.setModelLanguage(model, 'shell')
+            monaco.editor.setModelLanguage(model, COMMAND_EDITOR_LANGUAGE)
         }
 
         if (this.config.store.commandEditor) {
@@ -314,6 +319,7 @@ export class CommandEditorPanelService {
         }
 
         this.installStyles()
+        this.registerEditorLanguageFeatures()
 
         const root = document.createElement('div')
         root.id = BAR_ID
@@ -365,7 +371,7 @@ export class CommandEditorPanelService {
 
         const editor = monaco.editor.create(editorHost, {
             value: '',
-            language: 'shell',
+            language: COMMAND_EDITOR_LANGUAGE,
             theme: this.getEditorTheme(),
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
@@ -390,7 +396,7 @@ export class CommandEditorPanelService {
         closeBtn.addEventListener('click', () => this.closeFile())
         sendBtn.addEventListener('click', () => this.sendFromPanel())
 
-        this.setupEditorKeybindings(editor)
+        this.setupEditorKeybindings(editor, root)
 
         editor.onDidFocusEditorWidget(() => {
             this.editorFocused = true
@@ -449,7 +455,7 @@ export class CommandEditorPanelService {
 
         const model = state.editor.getModel()
         if (model) {
-            monaco.editor.setModelLanguage(model, this.detectLanguage(filePath))
+            monaco.editor.setModelLanguage(model, COMMAND_EDITOR_LANGUAGE)
         }
         state.editor.setValue(content)
         state.filePath = filePath
@@ -582,6 +588,7 @@ export class CommandEditorPanelService {
     }
 
     private hidePanel (state: PanelState): void {
+        closeHeadingOutlinePicker()
         this.onPanelResizeEnd()
         window.removeEventListener('mousemove', this.onPanelResizeMove)
         window.removeEventListener('mouseup', this.onPanelResizeEnd)
@@ -695,7 +702,10 @@ export class CommandEditorPanelService {
         }
     }
 
-    private setupEditorKeybindings (editor: monaco.editor.IStandaloneCodeEditor): void {
+    private setupEditorKeybindings (
+        editor: monaco.editor.IStandaloneCodeEditor,
+        mountRoot: HTMLElement,
+    ): void {
         const send = () => this.sendFromPanel()
         const insertNewline = () => {
             const selection = editor.getSelection()
@@ -713,6 +723,36 @@ export class CommandEditorPanelService {
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
         editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, insertNewline, editorContext)
+        editor.addCommand(
+            monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash,
+            () => editor.trigger('keyboard', 'editor.action.commentLine', null),
+            editorContext,
+        )
+        editor.addCommand(
+            monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Slash,
+            () => toggleMarkdownComment(editor),
+            editorContext,
+        )
+        editor.addCommand(
+            monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyA,
+            () => editor.trigger('keyboard', 'editor.action.blockComment', null),
+            editorContext,
+        )
+        editor.addCommand(
+            monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyQ,
+            () => showHeadingOutlinePicker(editor, mountRoot),
+            editorContext,
+        )
+    }
+
+    private registerEditorLanguageFeatures (): void {
+        if (CommandEditorPanelService.languageFeaturesRegistered) {
+            return
+        }
+        CommandEditorPanelService.languageFeaturesRegistered = true
+
+        registerCommandEditorLanguage()
+        registerMarkdownHeadingFeatures()
     }
 
     /** Find/replace box and other Monaco overlay inputs (not the main editor textarea). */
@@ -970,6 +1010,56 @@ export class CommandEditorPanelService {
                 min-height: 0;
                 overflow: hidden;
             }
+
+            #${BAR_ID} .command-editor-outline-picker {
+                position: absolute;
+                top: 38px;
+                left: 8px;
+                right: 8px;
+                max-height: min(320px, 40vh);
+                overflow-y: auto;
+                z-index: 200;
+                padding: 4px 0;
+                border-radius: 4px;
+                background: var(--bs-body-bg, rgba(16, 18, 22, 0.98));
+                border: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+            }
+
+            #${BAR_ID} .command-editor-outline-picker-title {
+                padding: 6px 12px 4px;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                color: var(--bs-secondary-color, #888);
+                border-bottom: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.1));
+            }
+
+            #${BAR_ID} .command-editor-outline-item {
+                display: block;
+                width: 100%;
+                border: 0;
+                background: transparent;
+                color: inherit;
+                text-align: left;
+                padding: 6px 12px;
+                font-size: 13px;
+                cursor: pointer;
+            }
+
+            #${BAR_ID} .command-editor-outline-item:hover,
+            #${BAR_ID} .command-editor-outline-item:focus {
+                background: var(--bs-primary, rgba(47, 140, 255, 0.2));
+                outline: none;
+            }
+
+            #${BAR_ID} .command-editor-outline-item.level-1 { padding-left: 12px; }
+            #${BAR_ID} .command-editor-outline-item.level-2 { padding-left: 24px; }
+            #${BAR_ID} .command-editor-outline-item.level-3 { padding-left: 36px; }
+            #${BAR_ID} .command-editor-outline-item.level-4 { padding-left: 48px; }
+            #${BAR_ID} .command-editor-outline-item.level-5 { padding-left: 60px; }
+            #${BAR_ID} .command-editor-outline-item.level-6 { padding-left: 72px; }
         `
         document.head.appendChild(style)
     }
@@ -1000,6 +1090,9 @@ export class CommandEditorPanelService {
         }
 
         for (const line of lines) {
+            if (!line.trim()) {
+                continue
+            }
             terminal.sendInput(line)
             terminal.sendInput('\r')
         }
@@ -1028,28 +1121,7 @@ export class CommandEditorPanelService {
         return null
     }
 
-    private detectLanguage (filePath: string): string {
-        const ext = filePath.split('.').pop()?.toLowerCase()
-        const map: Record<string, string> = {
-            sh: 'shell',
-            bash: 'shell',
-            bat: 'bat',
-            ps1: 'powershell',
-            py: 'python',
-            js: 'javascript',
-            ts: 'typescript',
-            json: 'json',
-            yaml: 'yaml',
-            yml: 'yaml',
-            md: 'markdown',
-            ini: 'ini',
-            cfg: 'ini',
-            conf: 'ini',
-        }
-        return map[ext ?? ''] ?? 'plaintext'
-    }
-
-    private getEditorTheme (): 'vs-dark' | 'vs' {
+    private getEditorTheme (): string {
         const scheme = this.config.store.terminal?.colorScheme
         if (scheme?.background?.startsWith('#')) {
             const bg = scheme.background
@@ -1057,8 +1129,8 @@ export class CommandEditorPanelService {
             const g = parseInt(bg.slice(3, 5), 16)
             const b = parseInt(bg.slice(5, 7), 16)
             const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-            return luminance < 0.5 ? 'vs-dark' : 'vs'
+            return resolveCommandEditorTheme(luminance < 0.5)
         }
-        return 'vs-dark'
+        return resolveCommandEditorTheme(true)
     }
 }
