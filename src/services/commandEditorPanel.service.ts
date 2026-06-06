@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core'
-import { AppService, ConfigService, HotkeysService, NotificationsService, SplitTabComponent, TranslateService } from 'tabby-core'
+import { AppService, ConfigService, HotkeysService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
@@ -35,6 +35,95 @@ export class CommandEditorPanelService {
         overflow: string
     } | null = null
     private suppressResizeHandler = false
+    private readonly onDocumentKeyCapture = (event: KeyboardEvent): void => {
+        if (!this.panel?.visible || !this.editorFocused) {
+            return
+        }
+
+        const target = event.target as Node | null
+        if (!target || !this.panel.editorHost.contains(target)) {
+            return
+        }
+
+        if (!(event.ctrlKey || event.metaKey)) {
+            return
+        }
+
+        const key = event.key.toLowerCase()
+
+        if (this.isMonacoOverlayInput(target)) {
+            event.stopImmediatePropagation()
+            if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+                return
+            }
+
+            if (key === 'v') {
+                event.preventDefault()
+                const text = this.readClipboardText()
+                if (text) {
+                    this.pasteIntoInput(target, text)
+                }
+                return
+            }
+            if (key === 'c') {
+                event.preventDefault()
+                this.copyFromInput(target)
+                return
+            }
+            if (key === 'x') {
+                event.preventDefault()
+                this.cutFromInput(target)
+                return
+            }
+            if (key === 'a') {
+                event.preventDefault()
+                target.select()
+            }
+            return
+        }
+
+        const editor = this.panel.editor
+
+        if (key === 'c') {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            this.copyFromEditor(editor)
+            return
+        }
+        if (key === 'v') {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            this.pasteIntoEditor(editor)
+            return
+        }
+        if (key === 'x') {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            this.cutFromEditor(editor)
+            return
+        }
+        if (key === 'a') {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            editor.trigger('keyboard', 'editor.action.selectAll', null)
+        }
+    }
+    private readonly onPanelKeyCapture = (event: KeyboardEvent): void => {
+        if (!this.panel?.visible) {
+            return
+        }
+
+        const target = event.target as Node | null
+        if (!target || !this.panel.root.contains(target)) {
+            return
+        }
+
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'e') {
+            event.preventDefault()
+            event.stopPropagation()
+            void this.togglePanel()
+        }
+    }
     private readonly onWindowResize = (): void => {
         if (!this.panel?.visible || this.suppressResizeHandler) {
             return
@@ -48,9 +137,11 @@ export class CommandEditorPanelService {
         private app: AppService,
         private config: ConfigService,
         private hotkeys: HotkeysService,
+        private platform: PlatformService,
         private notifications: NotificationsService,
         private translate: TranslateService,
     ) {
+        document.addEventListener('keydown', this.onDocumentKeyCapture, true)
         this.app.ready$.subscribe(() => {
             const filePath = this.config.store.commandEditor?.lastOpenedFile
             if (filePath && typeof filePath === 'string') {
@@ -261,12 +352,12 @@ export class CommandEditorPanelService {
 
         editor.onDidFocusEditorWidget(() => {
             this.editorFocused = true
-            this.suspendGlobalHotkeys()
         })
         editor.onDidBlurEditorWidget(() => {
             this.editorFocused = false
-            this.resumeGlobalHotkeys()
         })
+
+        root.addEventListener('keydown', this.onPanelKeyCapture, true)
 
         this.panel = { root, editorHost, editor, fileLabel, filePath: null, visible: false, layoutAdjusted: false }
         this.applyPendingLastOpenedFile(this.panel)
@@ -361,6 +452,7 @@ export class CommandEditorPanelService {
         document.body.classList.add(BODY_CLASS)
         document.body.dataset.commandEditorPanelPosition = this.getPanelPosition()
         window.addEventListener('resize', this.onWindowResize)
+        this.suspendGlobalHotkeys()
 
         requestAnimationFrame(() => {
             state.editor.updateOptions({ automaticLayout: true })
@@ -436,8 +528,129 @@ export class CommandEditorPanelService {
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
         editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, insertNewline, editorContext)
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => this.copyFromEditor(editor), editorContext)
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => this.pasteIntoEditor(editor), editorContext)
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => this.cutFromEditor(editor), editorContext)
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyA, () => {
+            editor.trigger('keyboard', 'editor.action.selectAll', null)
+        }, editorContext)
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO, () => this.openFile())
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => this.saveFile())
+    }
+
+    /** Find/replace box and other Monaco overlay inputs (not the main editor textarea). */
+    private isMonacoOverlayInput (target: Node): boolean {
+        if (!(target instanceof Element)) {
+            return false
+        }
+
+        if (target.closest('.find-widget')) {
+            return true
+        }
+
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+            return !target.classList.contains('inputarea')
+                && !!target.closest('.monaco-editor')
+        }
+
+        return false
+    }
+
+    private pasteIntoInput (input: HTMLInputElement | HTMLTextAreaElement, text: string): void {
+        const start = input.selectionStart ?? input.value.length
+        const end = input.selectionEnd ?? start
+        input.setRangeText(text, start, end, 'end')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    private copyFromInput (input: HTMLInputElement | HTMLTextAreaElement): void {
+        const start = input.selectionStart ?? 0
+        const end = input.selectionEnd ?? 0
+        if (start === end) {
+            return
+        }
+
+        this.writeClipboardText(input.value.slice(start, end))
+    }
+
+    private cutFromInput (input: HTMLInputElement | HTMLTextAreaElement): void {
+        const start = input.selectionStart ?? 0
+        const end = input.selectionEnd ?? 0
+        if (start === end) {
+            return
+        }
+
+        const text = input.value.slice(start, end)
+        this.writeClipboardText(text)
+        input.setRangeText('', start, end, 'end')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+
+    private copyFromEditor (editor: monaco.editor.IStandaloneCodeEditor): void {
+        const selection = editor.getSelection()
+        const model = editor.getModel()
+        if (!selection || !model || selection.isEmpty()) {
+            return
+        }
+
+        const text = model.getValueInRange(selection)
+        if (text) {
+            this.writeClipboardText(text)
+        }
+    }
+
+    private pasteIntoEditor (editor: monaco.editor.IStandaloneCodeEditor): void {
+        const text = this.readClipboardText()
+        if (!text) {
+            return
+        }
+
+        const selection = editor.getSelection()
+        if (selection) {
+            editor.executeEdits('paste', [{ range: selection, text, forceMoveMarkers: true }])
+        }
+    }
+
+    private cutFromEditor (editor: monaco.editor.IStandaloneCodeEditor): void {
+        const selection = editor.getSelection()
+        const model = editor.getModel()
+        if (!selection || !model || selection.isEmpty()) {
+            return
+        }
+
+        const text = model.getValueInRange(selection)
+        if (!text) {
+            return
+        }
+
+        this.writeClipboardText(text)
+        editor.executeEdits('cut', [{ range: selection, text: '', forceMoveMarkers: true }])
+    }
+
+    private readClipboardText (): string {
+        const fromPlatform = this.platform.readClipboard()
+        if (fromPlatform) {
+            return fromPlatform
+        }
+
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { clipboard } = require('@electron/remote') as { clipboard: { readText: () => string } }
+            return clipboard.readText() ?? ''
+        } catch {
+            return ''
+        }
+    }
+
+    private writeClipboardText (text: string): void {
+        this.platform.setClipboard({ text })
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { clipboard } = require('@electron/remote') as { clipboard: { writeText: (value: string) => void } }
+            clipboard.writeText(text)
+        } catch {
+            // PlatformService is the primary path
+        }
     }
 
     private suspendGlobalHotkeys (): void {
