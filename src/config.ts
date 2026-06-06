@@ -4,6 +4,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
     defaults = {
         commandEditor: {
             panelPosition: 'right',
+            panelSize: null as number | null,
             lastOpenedFile: null as string | null,
         },
         hotkeys: {

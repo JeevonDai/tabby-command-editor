@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core'
+import { Subscription } from 'rxjs'
 import { AppService, ConfigService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
 // @ts-ignore - monaco-editor types
@@ -9,17 +10,20 @@ const BAR_ID = 'tabby-command-editor-panel-bar'
 const BODY_CLASS = 'tabby-command-editor-panel-enabled'
 const BROADCAST_BAR_ID = 'tabby-broadcast-input-bar'
 const TAB_CONTENT_SELECTOR = 'app-root > .content > .content'
+const PANEL_SIZE_VAR = '--tabby-command-editor-panel-size'
+const CONTENT_TAB_SELECTOR = 'app-root .content > .content > .content-tab.content-tab-active, app-root > .content > .content > .content-tab.content-tab-active'
 
 type PanelPosition = 'bottom' | 'right'
 
 interface PanelState {
     root: HTMLElement
+    resizeHandle: HTMLElement
     editorHost: HTMLElement
     editor: monaco.editor.IStandaloneCodeEditor
     fileLabel: HTMLElement
     filePath: string | null
     visible: boolean
-    layoutAdjusted: boolean
+    panelSizePx: number
 }
 
 @Injectable()
@@ -27,13 +31,43 @@ export class CommandEditorPanelService {
     private panel: PanelState | null = null
     private pendingLastOpenedFile: string | null = null
     private editorFocused = false
-    private hostLayoutBackup: {
-        paddingRight: string
-        paddingBottom: string
-        boxSizing: string
-        overflow: string
-    } | null = null
+    private layoutAdjusted = false
+    private tabAreaObserver: ResizeObserver | null = null
+    private activeTabSubscription: Subscription | null = null
     private suppressResizeHandler = false
+    private panelResizeDrag: {
+        active: boolean
+        startPos: number
+        startSize: number
+    } | null = null
+    private readonly onPanelResizeMove = (event: MouseEvent): void => {
+        if (!this.panelResizeDrag?.active || !this.panel?.visible) {
+            return
+        }
+
+        const host = this.getTabContentArea()
+        if (!host) {
+            return
+        }
+
+        const position = this.getPanelPosition()
+        const delta = position === 'right'
+            ? this.panelResizeDrag.startPos - event.clientX
+            : this.panelResizeDrag.startPos - event.clientY
+        const nextSize = this.clampPanelSize(this.panelResizeDrag.startSize + delta, host, position)
+        this.setPanelSize(this.panel, nextSize)
+        this.syncPanelLayout(this.panel)
+    }
+    private readonly onPanelResizeEnd = (): void => {
+        if (!this.panelResizeDrag?.active) {
+            return
+        }
+
+        this.panelResizeDrag.active = false
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        this.persistPanelSize()
+    }
     private readonly onDocumentKeyCapture = (event: KeyboardEvent): void => {
         if (!this.panel?.visible || !this.editorFocused) {
             return
@@ -112,8 +146,7 @@ export class CommandEditorPanelService {
             return
         }
         this.applyPanelPosition(this.panel)
-        this.adjustLayout(this.panel)
-        this.panel.editor.layout()
+        this.syncPanelLayout(this.panel)
     }
 
     constructor (
@@ -286,6 +319,24 @@ export class CommandEditorPanelService {
         root.id = BAR_ID
         root.style.display = 'none'
 
+        const resizeHandle = document.createElement('div')
+        resizeHandle.className = 'command-editor-panel-resize-handle'
+        resizeHandle.title = 'Drag to resize'
+        resizeHandle.addEventListener('mousedown', (event: MouseEvent) => {
+            event.preventDefault()
+            if (!this.panel?.visible) {
+                return
+            }
+
+            this.panelResizeDrag = {
+                active: true,
+                startPos: this.getPanelPosition() === 'right' ? event.clientX : event.clientY,
+                startSize: this.panel.panelSizePx,
+            }
+            document.body.style.cursor = this.getPanelPosition() === 'right' ? 'col-resize' : 'row-resize'
+            document.body.style.userSelect = 'none'
+        })
+
         const toolbar = document.createElement('div')
         toolbar.className = 'command-editor-panel-toolbar'
 
@@ -310,7 +361,7 @@ export class CommandEditorPanelService {
         const editorHost = document.createElement('div')
         editorHost.className = 'command-editor-panel-editor-host'
 
-        root.append(toolbar, editorHost)
+        root.append(resizeHandle, toolbar, editorHost)
 
         const editor = monaco.editor.create(editorHost, {
             value: '',
@@ -348,7 +399,16 @@ export class CommandEditorPanelService {
             this.editorFocused = false
         })
 
-        this.panel = { root, editorHost, editor, fileLabel, filePath: null, visible: false, layoutAdjusted: false }
+        this.panel = {
+            root,
+            resizeHandle,
+            editorHost,
+            editor,
+            fileLabel,
+            filePath: null,
+            visible: false,
+            panelSizePx: 0,
+        }
         this.applyPendingLastOpenedFile(this.panel)
         return this.panel
     }
@@ -433,25 +493,98 @@ export class CommandEditorPanelService {
         state.root.style.bottom = broadcastOffset > 0 ? `${broadcastOffset}px` : '0'
     }
 
+    private getDefaultPanelSize (host: HTMLElement, position: PanelPosition): number {
+        const saved = this.config.store.commandEditor?.panelSize
+        if (typeof saved === 'number' && saved > 0) {
+            return this.clampPanelSize(saved, host, position)
+        }
+
+        return this.clampPanelSize(
+            Math.round((position === 'right' ? host.clientWidth : host.clientHeight) * 0.38),
+            host,
+            position,
+        )
+    }
+
+    private clampPanelSize (size: number, host: HTMLElement, position: PanelPosition): number {
+        if (position === 'right') {
+            const min = 280
+            const max = Math.max(min, Math.round(host.clientWidth * 0.75))
+            return Math.max(min, Math.min(max, size))
+        }
+
+        const min = 120
+        const max = Math.max(min, Math.round(host.clientHeight * 0.75))
+        return Math.max(min, Math.min(max, size))
+    }
+
+    private setPanelSize (state: PanelState, sizePx: number): void {
+        state.panelSizePx = sizePx
+        const position = this.getPanelPosition()
+        if (position === 'right') {
+            state.root.style.width = `${sizePx}px`
+        } else {
+            state.root.style.height = `${sizePx}px`
+        }
+    }
+
+    private applyPanelDimensions (state: PanelState): void {
+        const host = this.getTabContentArea()
+        if (!host) {
+            return
+        }
+
+        const position = this.getPanelPosition()
+        if (state.panelSizePx <= 0) {
+            this.setPanelSize(state, this.getDefaultPanelSize(host, position))
+        } else {
+            this.setPanelSize(state, this.clampPanelSize(state.panelSizePx, host, position))
+        }
+    }
+
+    private persistPanelSize (): void {
+        if (!this.panel?.visible || !this.config.store.commandEditor) {
+            return
+        }
+
+        this.config.store.commandEditor.panelSize = this.panel.panelSizePx
+        this.config.save()
+    }
+
+    /** Keep terminal area and editor split in sync */
+    private syncPanelLayout (state: PanelState): void {
+        this.applyPanelPosition(state)
+        this.applyPanelDimensions(state)
+        this.applySplitLayout(state)
+        this.startTabAreaObserver()
+        state.editor.layout()
+        this.fitAllTerminals()
+        this.notifyTerminalLayoutChanged()
+    }
+
     private showPanel (state: PanelState): void {
         this.mountPanel(state.root)
-        this.applyPanelPosition(state)
+        window.addEventListener('mousemove', this.onPanelResizeMove)
+        window.addEventListener('mouseup', this.onPanelResizeEnd)
         state.root.style.display = 'flex'
         state.visible = true
         document.body.classList.add(BODY_CLASS)
         document.body.dataset.commandEditorPanelPosition = this.getPanelPosition()
         window.addEventListener('resize', this.onWindowResize)
+        this.startTabAreaObserver()
+        this.startActiveTabWatcher()
 
         requestAnimationFrame(() => {
             state.editor.updateOptions({ automaticLayout: true })
-            this.adjustLayout(state)
-            state.editor.layout()
-            this.notifyTerminalLayoutChanged()
+            this.syncPanelLayout(state)
             state.editor.focus()
         })
     }
 
     private hidePanel (state: PanelState): void {
+        this.onPanelResizeEnd()
+        window.removeEventListener('mousemove', this.onPanelResizeMove)
+        window.removeEventListener('mouseup', this.onPanelResizeEnd)
         state.root.style.display = 'none'
         state.visible = false
         state.root.remove()
@@ -460,43 +593,108 @@ export class CommandEditorPanelService {
         document.body.classList.remove(BODY_CLASS)
         delete document.body.dataset.commandEditorPanelPosition
         window.removeEventListener('resize', this.onWindowResize)
+        this.stopTabAreaObserver()
+        this.stopActiveTabWatcher()
         this.restoreLayout(state)
         this.notifyTerminalLayoutChanged()
     }
 
-    /** Shrink the terminal tab area while the panel is visible */
-    private adjustLayout (state: PanelState): void {
-        const host = this.getTabContentArea()
-        if (!host) {
+    /** Shrink the active terminal tab pane (not padding — xterm uses absolute .content-tab) */
+    private applySplitLayout (state: PanelState): void {
+        document.documentElement.style.setProperty(PANEL_SIZE_VAR, `${state.panelSizePx}px`)
+        this.layoutAdjusted = true
+    }
+
+    private startTabAreaObserver (): void {
+        if (typeof ResizeObserver === 'undefined') {
             return
         }
 
-        if (!state.layoutAdjusted) {
-            this.hostLayoutBackup = {
-                paddingRight: host.style.paddingRight,
-                paddingBottom: host.style.paddingBottom,
-                boxSizing: host.style.boxSizing,
-                overflow: host.style.overflow,
+        this.stopTabAreaObserver()
+        const target = document.querySelector(CONTENT_TAB_SELECTOR) as HTMLElement | null
+            ?? this.getTabContentArea()
+        if (!target) {
+            return
+        }
+
+        this.tabAreaObserver = new ResizeObserver(() => {
+            if (!this.panel?.visible) {
+                return
+            }
+            this.fitAllTerminals()
+            this.panel.editor.layout()
+        })
+        this.tabAreaObserver.observe(target)
+    }
+
+    private stopTabAreaObserver (): void {
+        this.tabAreaObserver?.disconnect()
+        this.tabAreaObserver = null
+    }
+
+    private startActiveTabWatcher (): void {
+        this.stopActiveTabWatcher()
+        this.activeTabSubscription = this.app.activeTabChange$.subscribe(() => {
+            if (!this.panel?.visible) {
+                return
+            }
+            this.startTabAreaObserver()
+            this.fitAllTerminals()
+        })
+    }
+
+    private stopActiveTabWatcher (): void {
+        this.activeTabSubscription?.unsubscribe()
+        this.activeTabSubscription = null
+    }
+
+    private fitAllTerminals (): void {
+        const run = (): void => {
+            for (const tab of this.app.tabs) {
+                this.fitTerminalInTab(tab)
             }
         }
 
-        const broadcastHeight = this.getBroadcastBarHeight()
-        const position = this.getPanelPosition()
+        run()
+        requestAnimationFrame(() => {
+            run()
+            requestAnimationFrame(run)
+        })
+    }
 
-        host.style.boxSizing = 'border-box'
-        host.style.overflow = 'hidden'
-        state.layoutAdjusted = true
+    private fitTerminalInTab (tab: unknown): void {
+        if (tab instanceof BaseTerminalTabComponent) {
+            this.fitTerminalFrontend(tab)
+            return
+        }
 
-        if (position === 'right') {
-            const panelWidth = state.root.offsetWidth || Math.round(host.clientWidth * 0.38)
-            host.style.paddingRight = `${panelWidth}px`
-        } else {
-            const panelHeight = state.root.offsetHeight || Math.round(host.clientHeight * 0.38)
-            host.style.paddingBottom = `${panelHeight + broadcastHeight}px`
+        if (tab instanceof SplitTabComponent) {
+            for (const child of tab.getAllTabs()) {
+                this.fitTerminalInTab(child)
+            }
         }
     }
 
-    /** Editor-only shortcuts (active when the Monaco editor is focused). */
+    private fitTerminalFrontend (tab: BaseTerminalTabComponent<any>): void {
+        const frontend = tab.frontend as {
+            resizeHandler?: () => void
+            fitAddon?: { fit?: () => void }
+        } | undefined
+        if (!frontend) {
+            return
+        }
+
+        try {
+            if (typeof frontend.resizeHandler === 'function') {
+                frontend.resizeHandler()
+            } else if (typeof frontend.fitAddon?.fit === 'function') {
+                frontend.fitAddon.fit()
+            }
+        } catch {
+            // Ignore fit errors on detached tabs
+        }
+    }
+
     private setupEditorKeybindings (editor: monaco.editor.IStandaloneCodeEditor): void {
         const send = () => this.sendFromPanel()
         const insertNewline = () => {
@@ -637,26 +835,20 @@ export class CommandEditorPanelService {
         this.suppressResizeHandler = true
         try {
             window.dispatchEvent(new Event('resize'))
+            this.fitAllTerminals()
         } finally {
             this.suppressResizeHandler = false
         }
     }
 
-    private restoreLayout (state: PanelState): void {
-        if (!state.layoutAdjusted || !this.hostLayoutBackup) {
+    private restoreLayout (_state: PanelState): void {
+        if (!this.layoutAdjusted) {
             return
         }
 
-        const host = this.getTabContentArea()
-        if (host) {
-            host.style.paddingRight = this.hostLayoutBackup.paddingRight
-            host.style.paddingBottom = this.hostLayoutBackup.paddingBottom
-            host.style.boxSizing = this.hostLayoutBackup.boxSizing
-            host.style.overflow = this.hostLayoutBackup.overflow
-        }
-
-        this.hostLayoutBackup = null
-        state.layoutAdjusted = false
+        document.documentElement.style.setProperty(PANEL_SIZE_VAR, '0px')
+        this.layoutAdjusted = false
+        this.fitAllTerminals()
     }
 
     private getBroadcastBarHeight (): number {
@@ -671,6 +863,24 @@ export class CommandEditorPanelService {
         const style = document.createElement('style')
         style.id = STYLE_ID
         style.textContent = `
+            :root {
+                ${PANEL_SIZE_VAR}: 0px;
+            }
+
+            body.${BODY_CLASS} ${TAB_CONTENT_SELECTOR} {
+                position: relative;
+            }
+
+            body.${BODY_CLASS}[data-command-editor-panel-position="right"] app-root .content > .content > .content-tab.content-tab-active,
+            body.${BODY_CLASS}[data-command-editor-panel-position="right"] app-root > .content > .content > .content-tab.content-tab-active {
+                width: calc(100% - var(${PANEL_SIZE_VAR})) !important;
+            }
+
+            body.${BODY_CLASS}[data-command-editor-panel-position="bottom"] app-root .content > .content > .content-tab.content-tab-active,
+            body.${BODY_CLASS}[data-command-editor-panel-position="bottom"] app-root > .content > .content > .content-tab.content-tab-active {
+                height: calc(100% - var(${PANEL_SIZE_VAR})) !important;
+            }
+
             #${BAR_ID} {
                 position: absolute;
                 z-index: 100;
@@ -685,19 +895,46 @@ export class CommandEditorPanelService {
             #${BAR_ID}.position-bottom {
                 left: 0;
                 right: 0;
-                height: 38%;
-                min-height: 140px;
-                max-height: 70%;
+                bottom: 0;
+                width: 100%;
                 border-top: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
             }
 
             #${BAR_ID}.position-right {
                 top: 0;
                 right: 0;
-                width: 38%;
-                min-width: 320px;
-                max-width: 60%;
+                height: 100%;
                 border-left: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
+            }
+
+            #${BAR_ID} .command-editor-panel-resize-handle {
+                position: absolute;
+                z-index: 101;
+                background: transparent;
+                transition: background 0.15s ease;
+            }
+
+            #${BAR_ID} .command-editor-panel-resize-handle:hover,
+            #${BAR_ID} .command-editor-panel-resize-handle:active {
+                background: var(--bs-primary, rgba(47, 140, 255, 0.45));
+            }
+
+            #${BAR_ID}.position-right .command-editor-panel-resize-handle {
+                left: 0;
+                top: 0;
+                bottom: 0;
+                width: 5px;
+                cursor: col-resize;
+                transform: translateX(-50%);
+            }
+
+            #${BAR_ID}.position-bottom .command-editor-panel-resize-handle {
+                left: 0;
+                right: 0;
+                top: 0;
+                height: 5px;
+                cursor: row-resize;
+                transform: translateY(-50%);
             }
 
             #${BAR_ID} .command-editor-panel-toolbar {
