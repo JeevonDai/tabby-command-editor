@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core'
-import { AppService, ConfigService, HotkeysService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
+import { AppService, ConfigService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
@@ -27,7 +27,6 @@ export class CommandEditorPanelService {
     private panel: PanelState | null = null
     private pendingLastOpenedFile: string | null = null
     private editorFocused = false
-    private hotkeysSuspended = false
     private hostLayoutBackup: {
         paddingRight: string
         paddingBottom: string
@@ -108,22 +107,6 @@ export class CommandEditorPanelService {
             editor.trigger('keyboard', 'editor.action.selectAll', null)
         }
     }
-    private readonly onPanelKeyCapture = (event: KeyboardEvent): void => {
-        if (!this.panel?.visible) {
-            return
-        }
-
-        const target = event.target as Node | null
-        if (!target || !this.panel.root.contains(target)) {
-            return
-        }
-
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'e') {
-            event.preventDefault()
-            event.stopPropagation()
-            void this.togglePanel()
-        }
-    }
     private readonly onWindowResize = (): void => {
         if (!this.panel?.visible || this.suppressResizeHandler) {
             return
@@ -136,7 +119,6 @@ export class CommandEditorPanelService {
     constructor (
         private app: AppService,
         private config: ConfigService,
-        private hotkeys: HotkeysService,
         private platform: PlatformService,
         private notifications: NotificationsService,
         private translate: TranslateService,
@@ -160,6 +142,15 @@ export class CommandEditorPanelService {
 
     isEditorFocused (): boolean {
         return this.editorFocused && (this.panel?.visible ?? false)
+    }
+
+    openFindWidget (): void {
+        const state = this.ensurePanel()
+        if (!state.visible) {
+            this.showPanel(state)
+        }
+        state.editor.focus()
+        state.editor.getAction('actions.find')?.run()
     }
 
     getActiveTerminalTab (): BaseTerminalTabComponent<any> | null {
@@ -216,9 +207,9 @@ export class CommandEditorPanelService {
     }
 
     async saveFile (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
-        const state = this.panel
-        if (!state) {
-            return
+        const state = this.ensurePanel()
+        if (!state.visible) {
+            this.showPanel(state)
         }
 
         let filePath = state.filePath
@@ -313,7 +304,7 @@ export class CommandEditorPanelService {
         fileLabel.className = 'command-editor-panel-file-label'
         fileLabel.title = ''
         const sendBtn = mkBtn('Send line', true)
-        sendBtn.title = 'Enter / F8 to send, Shift+Enter for newline'
+        sendBtn.title = 'Enter / F8'
         toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendBtn)
 
         const editorHost = document.createElement('div')
@@ -356,8 +347,6 @@ export class CommandEditorPanelService {
         editor.onDidBlurEditorWidget(() => {
             this.editorFocused = false
         })
-
-        root.addEventListener('keydown', this.onPanelKeyCapture, true)
 
         this.panel = { root, editorHost, editor, fileLabel, filePath: null, visible: false, layoutAdjusted: false }
         this.applyPendingLastOpenedFile(this.panel)
@@ -452,7 +441,6 @@ export class CommandEditorPanelService {
         document.body.classList.add(BODY_CLASS)
         document.body.dataset.commandEditorPanelPosition = this.getPanelPosition()
         window.addEventListener('resize', this.onWindowResize)
-        this.suspendGlobalHotkeys()
 
         requestAnimationFrame(() => {
             state.editor.updateOptions({ automaticLayout: true })
@@ -469,7 +457,6 @@ export class CommandEditorPanelService {
         state.root.remove()
         state.editor.updateOptions({ automaticLayout: false })
         this.editorFocused = false
-        this.resumeGlobalHotkeys()
         document.body.classList.remove(BODY_CLASS)
         delete document.body.dataset.commandEditorPanelPosition
         window.removeEventListener('resize', this.onWindowResize)
@@ -509,6 +496,7 @@ export class CommandEditorPanelService {
         }
     }
 
+    /** Editor-only shortcuts (active when the Monaco editor is focused). */
     private setupEditorKeybindings (editor: monaco.editor.IStandaloneCodeEditor): void {
         const send = () => this.sendFromPanel()
         const insertNewline = () => {
@@ -522,20 +510,11 @@ export class CommandEditorPanelService {
                 forceMoveMarkers: true,
             }])
         }
-
         const editorContext = 'editorTextFocus && !findWidgetVisible && !suggestWidgetVisible'
 
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
         editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, insertNewline, editorContext)
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => this.copyFromEditor(editor), editorContext)
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => this.pasteIntoEditor(editor), editorContext)
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => this.cutFromEditor(editor), editorContext)
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyA, () => {
-            editor.trigger('keyboard', 'editor.action.selectAll', null)
-        }, editorContext)
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO, () => this.openFile())
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => this.saveFile())
     }
 
     /** Find/replace box and other Monaco overlay inputs (not the main editor textarea). */
@@ -651,22 +630,6 @@ export class CommandEditorPanelService {
         } catch {
             // PlatformService is the primary path
         }
-    }
-
-    private suspendGlobalHotkeys (): void {
-        if (this.hotkeysSuspended) {
-            return
-        }
-        this.hotkeys.disable()
-        this.hotkeysSuspended = true
-    }
-
-    private resumeGlobalHotkeys (): void {
-        if (!this.hotkeysSuspended) {
-            return
-        }
-        this.hotkeys.enable()
-        this.hotkeysSuspended = false
     }
 
     /** Tell xterm/Tabby to reflow without re-entering our resize handler */

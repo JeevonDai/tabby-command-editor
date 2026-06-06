@@ -8,8 +8,9 @@ export class CommandEditorConfigProvider extends ConfigProvider {
         },
         hotkeys: {
             'toggle-command-editor-panel': [],
-            'send-command-line': [],
+            'find-in-command-editor': [],
             'open-command-editor-file': [],
+            'save-command-editor-file': [],
             'command-tips': {
                 __nonStructural: true,
                 toggle: [],
@@ -25,22 +26,25 @@ export class CommandEditorConfigProvider extends ConfigProvider {
         [Platform.macOS]: {
             hotkeys: {
                 'toggle-command-editor-panel': ['Ctrl-E'],
-                'send-command-line': ['F8'],
+                'find-in-command-editor': ['Ctrl-F'],
                 'open-command-editor-file': ['Ctrl-O'],
+                'save-command-editor-file': ['Ctrl-S'],
             },
         },
         [Platform.Windows]: {
             hotkeys: {
                 'toggle-command-editor-panel': ['Ctrl-E'],
-                'send-command-line': ['F8'],
+                'find-in-command-editor': ['Ctrl-F'],
                 'open-command-editor-file': ['Ctrl-O'],
+                'save-command-editor-file': ['Ctrl-S'],
             },
         },
         [Platform.Linux]: {
             hotkeys: {
                 'toggle-command-editor-panel': ['Ctrl-E'],
-                'send-command-line': ['F8'],
+                'find-in-command-editor': ['Ctrl-F'],
                 'open-command-editor-file': ['Ctrl-O'],
+                'save-command-editor-file': ['Ctrl-S'],
             },
         },
     }

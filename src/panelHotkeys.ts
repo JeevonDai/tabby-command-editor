@@ -13,13 +13,14 @@ export class CommandEditorPanelHotkeyHandler {
                 case 'toggle-command-editor-panel':
                     await this.panelService.togglePanel()
                     break
-                case 'send-command-line':
-                    if (this.panelService.isPanelVisible() && !this.panelService.isEditorFocused()) {
-                        this.panelService.sendFromPanel()
-                    }
+                case 'find-in-command-editor':
+                    await this.panelService.openFindWidget()
                     break
                 case 'open-command-editor-file':
                     await this.panelService.openFile()
+                    break
+                case 'save-command-editor-file':
+                    await this.panelService.saveFile()
                     break
             }
         })

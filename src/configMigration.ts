@@ -33,6 +33,11 @@ export class CommandEditorConfigMigration {
             changed = true
         }
 
+        if (hotkeys?.['send-command-line']) {
+            delete hotkeys['send-command-line']
+            changed = true
+        }
+
         if (changed) {
             void this.config.save()
         }
