@@ -36,6 +36,10 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
             id: 'open-command-editor-outline',
             name: this.translate.instant('Open markdown outline in command editor'),
         },
+        {
+            id: 'open-command-editor-symbol',
+            name: this.translate.instant('Go to symbol in command editor'),
+        },
     ]
 
     constructor (private translate: TranslateService) { super() }

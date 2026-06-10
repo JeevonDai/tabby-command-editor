@@ -4,7 +4,7 @@ import { AppService, ConfigService, NotificationsService, PlatformService, Split
 import { BaseTerminalTabComponent } from 'tabby-terminal'
 import { stripComments, toggleMarkdownComment } from '../commandComments'
 import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandEditorTheme } from '../commandEditorLanguage'
-import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker } from '../commandOutline'
+import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker, pruneQuickAccessProviders } from '../commandOutline'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
 
@@ -52,6 +52,7 @@ export class CommandEditorPanelService {
     private activeTabSubscription: Subscription | null = null
     private batchSendJobId = 0
     private savedEditorSelection: monaco.Selection | null = null
+    private symbolHighlightIds: string[] = []
     private targetTerminalTab: BaseTerminalTabComponent<any> | null = null
     private suppressResizeHandler = false
     private panelResizeDrag: {
@@ -230,6 +231,27 @@ export class CommandEditorPanelService {
         }
         state.editor.focus()
         showHeadingOutlinePicker(state.editor, state.root)
+    }
+
+    /** Global hotkey: open the panel (if needed) and trigger Monaco's Go to Symbol. */
+    openSymbolPicker (): void {
+        const state = this.ensurePanel()
+        const wasVisible = state.visible
+        if (!wasVisible) {
+            this.showPanel(state, this.getActiveTerminalTab())
+        }
+
+        const run = (): void => {
+            state.editor.focus()
+            state.editor.trigger('keyboard', 'editor.action.quickOutline', null)
+        }
+
+        if (wasVisible) {
+            run()
+        } else {
+            // Wait one frame so the freshly mounted editor is laid out and focusable.
+            requestAnimationFrame(run)
+        }
     }
 
     getActiveTerminalTab (): BaseTerminalTabComponent<any> | null {
@@ -520,6 +542,7 @@ export class CommandEditorPanelService {
             return
         }
 
+        this.clearSymbolLineHighlight(state.editor)
         state.editor.setValue('')
         state.filePath = null
 
@@ -714,6 +737,7 @@ export class CommandEditorPanelService {
 
         editor.onDidChangeCursorSelection((event) => {
             this.savedEditorSelection = event.selection
+            this.handleSelectionHighlight(editor, event)
         })
         editor.onDidFocusEditorWidget(() => {
             this.editorFocused = true
@@ -918,6 +942,7 @@ export class CommandEditorPanelService {
 
     private hidePanel (state: PanelState): void {
         closeHeadingOutlinePicker()
+        this.clearSymbolLineHighlight(state.editor)
         this.cancelBatchSend()
         this.onPanelResizeEnd()
         window.removeEventListener('mousemove', this.onPanelResizeMove)
@@ -1078,6 +1103,66 @@ export class CommandEditorPanelService {
             () => editor.trigger('keyboard', 'editor.action.blockComment', null),
             editorContext,
         )
+
+        // Suppress the command palette (F1 / Ctrl+Shift+P) so only Go to Line and
+        // Go to Symbol remain reachable.
+        const noop = () => { /* command palette disabled */ }
+        editor.addCommand(monaco.KeyCode.F1, noop)
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP, noop)
+    }
+
+    /**
+     * Highlight the line jumped to from Go to Line (Ctrl+G) or Go to Symbol
+     * (Ctrl+Shift+O / Shift+Alt+Enter). Both navigate via setSelection(source 'api'),
+     * which lets us flash the target line without reacting to typing/clicking.
+     */
+    private handleSelectionHighlight (
+        editor: monaco.editor.IStandaloneCodeEditor,
+        event: monaco.editor.ICursorSelectionChangedEvent,
+    ): void {
+        const model = editor.getModel()
+        if (!model) {
+            return
+        }
+
+        const selection = event.selection
+        const isSingleLine = selection.startLineNumber === selection.endLineNumber
+        const isNavigation = event.source === 'api'
+            && event.reason !== monaco.editor.CursorChangeReason.ContentFlush
+            && isSingleLine
+            && !this.isFindWidgetVisible()
+
+        if (isNavigation) {
+            this.applySymbolLineHighlight(editor, selection.startLineNumber)
+        } else {
+            this.clearSymbolLineHighlight(editor)
+        }
+    }
+
+    private isFindWidgetVisible (): boolean {
+        return !!this.panel?.editorHost.querySelector('.find-widget.visible')
+    }
+
+    private applySymbolLineHighlight (editor: monaco.editor.IStandaloneCodeEditor, line: number): void {
+        // Clear first so the flash animation replays on a freshly created overlay element.
+        this.clearSymbolLineHighlight(editor)
+        this.symbolHighlightIds = editor.deltaDecorations([], [{
+            range: new monaco.Range(line, 1, line, 1),
+            options: {
+                isWholeLine: true,
+                className: 'command-editor-symbol-highlight',
+                overviewRuler: {
+                    color: 'rgba(77, 163, 255, 0.7)',
+                    position: monaco.editor.OverviewRulerLane.Full,
+                },
+            },
+        }])
+    }
+
+    private clearSymbolLineHighlight (editor: monaco.editor.IStandaloneCodeEditor): void {
+        if (this.symbolHighlightIds.length > 0) {
+            this.symbolHighlightIds = editor.deltaDecorations(this.symbolHighlightIds, [])
+        }
     }
 
     private registerEditorLanguageFeatures (): void {
@@ -1088,6 +1173,7 @@ export class CommandEditorPanelService {
 
         registerCommandEditorLanguage()
         registerMarkdownHeadingFeatures()
+        pruneQuickAccessProviders()
     }
 
     /** Find/replace box and other Monaco overlay inputs (not the main editor textarea). */
@@ -1551,6 +1637,151 @@ export class CommandEditorPanelService {
             #${BAR_ID} .command-editor-outline-item.level-4 { padding-left: 48px; }
             #${BAR_ID} .command-editor-outline-item.level-5 { padding-left: 60px; }
             #${BAR_ID} .command-editor-outline-item.level-6 { padding-left: 72px; }
+
+            /* Monaco Quick Access overlay: Go to Symbol (Ctrl+Shift+O),
+               Go to Line (Ctrl+G), Command palette (>), Provider help (?) */
+            #${BAR_ID} .quick-input-widget {
+                padding: 0;
+                border-radius: 6px;
+                border: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
+                background: var(--bs-body-bg, rgba(16, 18, 22, 0.98)) !important;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+                overflow: hidden;
+            }
+
+            #${BAR_ID} .quick-input-widget * {
+                text-decoration: none !important;
+            }
+
+            #${BAR_ID} .quick-input-titlebar {
+                background: transparent !important;
+            }
+
+            #${BAR_ID} .quick-input-header {
+                padding: 8px 8px 6px;
+                background: transparent;
+            }
+
+            #${BAR_ID} .quick-input-description {
+                padding: 2px 4px 6px;
+                font-size: 12px;
+                color: var(--bs-secondary-color, #aaa);
+            }
+
+            #${BAR_ID} .quick-input-box .monaco-inputbox {
+                border-radius: 4px;
+                border: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.2)) !important;
+                background: var(--bs-tertiary-bg, rgba(255, 255, 255, 0.06)) !important;
+            }
+
+            #${BAR_ID} .quick-input-box .monaco-inputbox > .ibwrapper > .input,
+            #${BAR_ID} .quick-input-box .monaco-inputbox .input {
+                background: transparent !important;
+                color: var(--bs-body-color, #dee2e6) !important;
+                font-size: 13px;
+                padding: 4px 8px;
+            }
+
+            #${BAR_ID} .quick-input-box .monaco-inputbox.synthetic-focus,
+            #${BAR_ID} .quick-input-box .monaco-inputbox:focus-within {
+                border-color: var(--bs-primary, #4da3ff) !important;
+                box-shadow: 0 0 0 1px var(--bs-primary, #4da3ff) !important;
+            }
+
+            #${BAR_ID} .quick-input-count .monaco-count-badge {
+                min-width: 18px;
+                padding: 1px 6px;
+                border-radius: 10px;
+                font-size: 11px;
+                background: var(--bs-primary, #4da3ff) !important;
+                color: #fff !important;
+            }
+
+            #${BAR_ID} .quick-input-message {
+                padding: 4px 8px 6px;
+                font-size: 11px;
+                color: var(--bs-secondary-color, #aaa);
+            }
+
+            #${BAR_ID} .quick-input-list {
+                padding: 4px 0 6px;
+            }
+
+            /* Keep rows at Monaco's measured fixed height; only restyle colors so
+               the label is never clipped (no vertical padding/margin on rows). */
+            #${BAR_ID} .quick-input-list .monaco-list-row {
+                color: var(--bs-body-color, #dee2e6);
+            }
+
+            #${BAR_ID} .quick-input-list .monaco-list-row:hover {
+                background: rgba(255, 255, 255, 0.06) !important;
+            }
+
+            #${BAR_ID} .quick-input-list .monaco-list-row.focused,
+            #${BAR_ID} .quick-input-list .monaco-list.focused .monaco-list-row.focused {
+                background: rgba(77, 163, 255, 0.18) !important;
+                color: var(--bs-body-color, #f0f0f0) !important;
+                box-shadow: inset 2px 0 0 var(--bs-primary, #4da3ff);
+            }
+
+            #${BAR_ID} .quick-input-list .quick-input-list-entry {
+                align-items: center;
+            }
+
+            #${BAR_ID} .quick-input-list .monaco-icon-label,
+            #${BAR_ID} .quick-input-list .monaco-icon-label > .monaco-icon-label-container {
+                line-height: normal;
+            }
+
+            #${BAR_ID} .quick-input-list .monaco-highlighted-label .highlight {
+                color: var(--bs-primary, #4da3ff) !important;
+                font-weight: 700;
+                background: transparent !important;
+            }
+
+            #${BAR_ID} .quick-input-list .label-description,
+            #${BAR_ID} .quick-input-list .quick-input-list-label-meta,
+            #${BAR_ID} .quick-input-list .quick-input-list-entry-description,
+            #${BAR_ID} .quick-input-list .monaco-icon-label .label-description {
+                color: var(--bs-secondary-color, #8a8f98) !important;
+                font-size: 11px;
+            }
+
+            #${BAR_ID} .quick-input-list .monaco-keybinding-key {
+                padding: 1px 5px;
+                border-radius: 3px;
+                font-size: 10px;
+                background: var(--bs-tertiary-bg, rgba(255, 255, 255, 0.1)) !important;
+                color: var(--bs-body-color, #cfd3da) !important;
+                border: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.18)) !important;
+                border-bottom-width: 2px !important;
+                box-shadow: none !important;
+            }
+
+            #${BAR_ID} .quick-input-list .quick-input-list-separator,
+            #${BAR_ID} .quick-input-list .quick-input-list-separator-label {
+                color: var(--bs-secondary-color, #888) !important;
+                font-size: 10px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+            }
+
+            #${BAR_ID} .quick-input-list .quick-input-list-entry.quick-input-list-separator-border {
+                border-top: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.12)) !important;
+            }
+
+            /* Heading/comment line highlight after jumping from "Go to Symbol" */
+            #${BAR_ID} .monaco-editor .command-editor-symbol-highlight {
+                background: rgba(77, 163, 255, 0.20);
+                box-shadow: inset 3px 0 0 var(--bs-primary, #4da3ff);
+                animation: command-editor-symbol-flash 0.65s ease-out;
+            }
+
+            @keyframes command-editor-symbol-flash {
+                0% { background: rgba(77, 163, 255, 0.55); }
+                100% { background: rgba(77, 163, 255, 0.20); }
+            }
         `
         document.head.appendChild(style)
     }

@@ -31,6 +31,9 @@ export class CommandEditorPanelHotkeyHandler {
                 case 'open-command-editor-outline':
                     this.panelService.openOutlinePicker()
                     break
+                case 'open-command-editor-symbol':
+                    this.panelService.openSymbolPicker()
+                    break
             }
         })
     }

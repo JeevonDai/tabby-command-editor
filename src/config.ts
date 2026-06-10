@@ -20,6 +20,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             'send-command-editor-lines': [],
             'cancel-command-editor-loop': [],
             'open-command-editor-outline': [],
+            'open-command-editor-symbol': [],
             'command-tips': {
                 __nonStructural: true,
                 toggle: [],
@@ -42,6 +43,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-lines': ['F6'],
                 'cancel-command-editor-loop': ['F7'],
                 'open-command-editor-outline': ['Ctrl-Q'],
+                'open-command-editor-symbol': ['鈱?Shift-Enter'],
             },
         },
         [Platform.Windows]: {
@@ -54,6 +56,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-lines': ['F6'],
                 'cancel-command-editor-loop': ['F7'],
                 'open-command-editor-outline': ['Ctrl-Q'],
+                'open-command-editor-symbol': ['Alt-Shift-Enter'],
             },
         },
         [Platform.Linux]: {
@@ -66,6 +69,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-lines': ['F6'],
                 'cancel-command-editor-loop': ['F7'],
                 'open-command-editor-outline': ['Ctrl-Q'],
+                'open-command-editor-symbol': ['Alt-Shift-Enter'],
             },
         },
     }

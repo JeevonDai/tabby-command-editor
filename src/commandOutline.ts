@@ -1,7 +1,16 @@
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
+// @ts-ignore - monaco internal module (shares the same singleton as the bundled editor)
+import { Registry } from 'monaco-editor/esm/vs/platform/registry/common/platform.js'
+// @ts-ignore - monaco internal module
+import { Extensions as QuickAccessExtensions } from 'monaco-editor/esm/vs/platform/quickinput/common/quickAccess.js'
+// @ts-ignore - monaco internal module
+import { MenuRegistry, MenuId } from 'monaco-editor/esm/vs/platform/actions/common/actions.js'
+
+const COMMAND_PALETTE_ACTION_ID = 'editor.action.quickCommand'
 
 const MARKDOWN_HEADING_RE = /^\s*(#{1,6})\s+(.+)$/
+const LINE_COMMENT_RE = /^\s*\/\/+\s?(.*)$/
 const OUTLINE_PICKER_CLASS = 'command-editor-outline-picker'
 const OUTLINE_LANGUAGES = [
     'command-editor',
@@ -34,7 +43,65 @@ interface OutlineNode {
 }
 
 let featuresRegistered = false
+let quickAccessPruned = false
 let activePickerClose: (() => void) | null = null
+
+/**
+ * Remove the command palette (">" / F1) and the help provider that powers
+ * "Show all Quick Access Providers" from Monaco's quick access registry, so only
+ * Go to Line (:) and Go to Symbol (@ / @:) are offered.
+ */
+export function pruneQuickAccessProviders (): void {
+    if (quickAccessPruned) {
+        return
+    }
+    quickAccessPruned = true
+
+    try {
+        const registry = Registry.as(QuickAccessExtensions.Quickaccess) as {
+            providers?: { prefix?: string }[]
+            defaultProvider?: unknown
+        } | undefined
+        if (!registry) {
+            return
+        }
+
+        if (Array.isArray(registry.providers)) {
+            registry.providers = registry.providers.filter(descriptor => descriptor.prefix !== '>')
+        }
+        // The help ("show all providers") entry is the default (empty-prefix) provider.
+        registry.defaultProvider = undefined
+    } catch (err) {
+        console.warn('[CommandEditor] Failed to prune quick access providers:', err)
+    }
+
+    removeCommandPaletteContextMenuItem()
+}
+
+/** Remove the right-click "Command Palette" entry from Monaco's editor context menu. */
+function removeCommandPaletteContextMenuItem (): void {
+    try {
+        const menuItems = (MenuRegistry as unknown as {
+            _menuItems?: Map<unknown, { clear: () => void; push: (item: unknown) => void } & Iterable<{ command?: { id?: string } }>>
+        })._menuItems
+        const list = menuItems?.get(MenuId.EditorContext)
+        if (!list) {
+            return
+        }
+
+        const kept = [...list].filter(item => item.command?.id !== COMMAND_PALETTE_ACTION_ID)
+        if (kept.length === [...list].length) {
+            return
+        }
+
+        list.clear()
+        for (const item of kept) {
+            list.push(item)
+        }
+    } catch (err) {
+        console.warn('[CommandEditor] Failed to remove command palette context menu item:', err)
+    }
+}
 
 export function parseMarkdownHeadings (text: string): MarkdownHeading[] {
     const headings: MarkdownHeading[] = []
@@ -121,44 +188,75 @@ function getVisibleOutlineNodes (roots: OutlineNode[]): OutlineNode[] {
     return visible
 }
 
-function buildHeadingSymbolTree (model: monaco.editor.ITextModel): monaco.languages.DocumentSymbol[] {
+/**
+ * Build the editor outline symbols used by Monaco's native "Go to Symbol" (Ctrl+Shift+O).
+ *
+ * Two symbol kinds are emitted so "Go to Symbol by Category" (@:) can split them:
+ *   - Markdown headings (`#`)  -> SymbolKind.Module  (category "modules")
+ *   - Line comments (`//`)     -> SymbolKind.String  (category "strings")
+ * Comments nest under the heading whose section they belong to, so the plain `@`
+ * view keeps a readable hierarchy while `@:` regroups everything by kind.
+ */
+function buildDocumentSymbols (model: monaco.editor.ITextModel): monaco.languages.DocumentSymbol[] {
     const roots: monaco.languages.DocumentSymbol[] = []
     const stack: { level: number; symbol: monaco.languages.DocumentSymbol }[] = []
 
-    for (let line = 1; line <= model.getLineCount(); line++) {
-        const content = model.getLineContent(line)
-        const match = content.match(MARKDOWN_HEADING_RE)
-        if (!match) {
-            continue
-        }
-
-        const title = match[2].trim()
-        if (!title) {
-            continue
-        }
-
-        const level = match[1].length
-        const symbol: monaco.languages.DocumentSymbol = {
-            name: title,
-            detail: '',
-            kind: monaco.languages.SymbolKind.Module,
-            tags: [],
-            range: new monaco.Range(line, 1, line, content.length + 1),
-            selectionRange: new monaco.Range(line, 1, line, content.length + 1),
-            children: [],
-        }
-
-        while (stack.length > 0 && stack[stack.length - 1].level >= level) {
-            stack.pop()
-        }
-
+    const appendSymbol = (symbol: monaco.languages.DocumentSymbol): void => {
         if (stack.length === 0) {
             roots.push(symbol)
         } else {
             stack[stack.length - 1].symbol.children!.push(symbol)
         }
+    }
 
-        stack.push({ level, symbol })
+    for (let line = 1; line <= model.getLineCount(); line++) {
+        const content = model.getLineContent(line)
+        const range = new monaco.Range(line, 1, line, content.length + 1)
+
+        const headingMatch = content.match(MARKDOWN_HEADING_RE)
+        if (headingMatch) {
+            const title = headingMatch[2].trim()
+            if (!title) {
+                continue
+            }
+
+            const level = headingMatch[1].length
+            const symbol: monaco.languages.DocumentSymbol = {
+                name: title,
+                detail: '',
+                kind: monaco.languages.SymbolKind.Module,
+                tags: [],
+                range,
+                selectionRange: range,
+                children: [],
+            }
+
+            while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+                stack.pop()
+            }
+
+            appendSymbol(symbol)
+            stack.push({ level, symbol })
+            continue
+        }
+
+        const commentMatch = content.match(LINE_COMMENT_RE)
+        if (commentMatch) {
+            const text = commentMatch[1].trim()
+            if (!text) {
+                continue
+            }
+
+            appendSymbol({
+                name: text,
+                detail: '',
+                kind: monaco.languages.SymbolKind.String,
+                tags: [],
+                range,
+                selectionRange: range,
+                children: [],
+            })
+        }
     }
 
     return roots
@@ -172,7 +270,7 @@ export function registerMarkdownHeadingFeatures (): void {
 
     monaco.languages.registerDocumentSymbolProvider(OUTLINE_LANGUAGES, {
         provideDocumentSymbols (model) {
-            return buildHeadingSymbolTree(model)
+            return buildDocumentSymbols(model)
         },
     })
 }
