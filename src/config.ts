@@ -19,6 +19,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             'reload-command-editor-file': [],
             'send-command-editor-lines': [],
             'cancel-command-editor-loop': [],
+            'open-command-editor-outline': [],
             'command-tips': {
                 __nonStructural: true,
                 toggle: [],
@@ -40,6 +41,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'reload-command-editor-file': ['F5'],
                 'send-command-editor-lines': ['F6'],
                 'cancel-command-editor-loop': ['F7'],
+                'open-command-editor-outline': ['Ctrl-Q'],
             },
         },
         [Platform.Windows]: {
@@ -51,6 +53,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'reload-command-editor-file': ['F5'],
                 'send-command-editor-lines': ['F6'],
                 'cancel-command-editor-loop': ['F7'],
+                'open-command-editor-outline': ['Ctrl-Q'],
             },
         },
         [Platform.Linux]: {
@@ -62,6 +65,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'reload-command-editor-file': ['F5'],
                 'send-command-editor-lines': ['F6'],
                 'cancel-command-editor-loop': ['F7'],
+                'open-command-editor-outline': ['Ctrl-Q'],
             },
         },
     }

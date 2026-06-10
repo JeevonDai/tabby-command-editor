@@ -28,6 +28,9 @@ export class CommandEditorPanelHotkeyHandler {
                 case 'cancel-command-editor-loop':
                     this.panelService.cancelLoopSend()
                     break
+                case 'open-command-editor-outline':
+                    this.panelService.openOutlinePicker()
+                    break
             }
         })
     }

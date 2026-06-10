@@ -223,6 +223,15 @@ export class CommandEditorPanelService {
         state.editor.getAction('actions.find')?.run()
     }
 
+    openOutlinePicker (): void {
+        const state = this.ensurePanel()
+        if (!state.visible) {
+            this.showPanel(state, this.getActiveTerminalTab())
+        }
+        state.editor.focus()
+        showHeadingOutlinePicker(state.editor, state.root)
+    }
+
     getActiveTerminalTab (): BaseTerminalTabComponent<any> | null {
         const active = this.app.activeTab
         if (!active) {
@@ -701,7 +710,7 @@ export class CommandEditorPanelService {
         }, { passive: false })
         sendLoopCountInput.addEventListener('change', () => this.persistSendLoopCountInput(sendLoopCountInput))
 
-        this.setupEditorKeybindings(editor, root)
+        this.setupEditorKeybindings(editor)
 
         editor.onDidChangeCursorSelection((event) => {
             this.savedEditorSelection = event.selection
@@ -1032,7 +1041,6 @@ export class CommandEditorPanelService {
 
     private setupEditorKeybindings (
         editor: monaco.editor.IStandaloneCodeEditor,
-        mountRoot: HTMLElement,
     ): void {
         const send = () => this.sendFromPanel()
         const insertNewline = () => {
@@ -1064,11 +1072,6 @@ export class CommandEditorPanelService {
         editor.addCommand(
             monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyA,
             () => editor.trigger('keyboard', 'editor.action.blockComment', null),
-            editorContext,
-        )
-        editor.addCommand(
-            monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyQ,
-            () => showHeadingOutlinePicker(editor, mountRoot),
             editorContext,
         )
     }
@@ -1475,6 +1478,14 @@ export class CommandEditorPanelService {
                 letter-spacing: 0.04em;
                 color: var(--bs-secondary-color, #888);
                 border-bottom: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.1));
+            }
+
+            #${BAR_ID} .command-editor-outline-empty {
+                padding: 12px;
+                font-size: 12px;
+                color: var(--bs-secondary-color, #888);
+                text-align: center;
+                line-height: 1.5;
             }
 
             #${BAR_ID} .command-editor-outline-item {

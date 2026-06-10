@@ -38,7 +38,7 @@ let activePickerClose: (() => void) | null = null
 
 export function parseMarkdownHeadings (text: string): MarkdownHeading[] {
     const headings: MarkdownHeading[] = []
-    const lines = text.split('\n')
+    const lines = text.split(/\r?\n/)
 
     for (let i = 0; i < lines.length; i++) {
         const match = lines[i].match(MARKDOWN_HEADING_RE)
@@ -211,6 +211,48 @@ function jumpToOutlineNode (editor: monaco.editor.IStandaloneCodeEditor, node: O
     closeActivePicker()
 }
 
+function showEmptyOutlinePicker (mountRoot: HTMLElement): void {
+    const picker = document.createElement('div')
+    picker.className = OUTLINE_PICKER_CLASS
+
+    const title = document.createElement('div')
+    title.className = 'command-editor-outline-picker-title'
+    title.textContent = 'Outline'
+    picker.appendChild(title)
+
+    const empty = document.createElement('div')
+    empty.className = 'command-editor-outline-empty'
+    empty.textContent = 'No headings found 鈥?add a Markdown heading (e.g. "# Title").'
+    picker.appendChild(empty)
+
+    mountRoot.appendChild(picker)
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+        if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            closeActivePicker()
+        }
+    }
+
+    const onMouseDown = (event: MouseEvent): void => {
+        if (!(event.target instanceof Node) || picker.contains(event.target)) {
+            return
+        }
+        closeActivePicker()
+    }
+
+    document.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('mousedown', onMouseDown, true)
+
+    activePickerClose = () => {
+        picker.remove()
+        document.removeEventListener('keydown', onKeyDown, true)
+        document.removeEventListener('mousedown', onMouseDown, true)
+        activePickerClose = null
+    }
+}
+
 export function showHeadingOutlinePicker (
     editor: monaco.editor.IStandaloneCodeEditor,
     mountRoot: HTMLElement,
@@ -227,6 +269,7 @@ export function showHeadingOutlinePicker (
 
     const roots = buildOutlineTree(parseMarkdownHeadings(model.getValue()))
     if (roots.length === 0) {
+        showEmptyOutlinePicker(mountRoot)
         return
     }
 

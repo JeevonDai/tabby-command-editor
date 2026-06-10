@@ -32,6 +32,10 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
             id: 'cancel-command-editor-loop',
             name: this.translate.instant('Stop command editor loop'),
         },
+        {
+            id: 'open-command-editor-outline',
+            name: this.translate.instant('Open markdown outline in command editor'),
+        },
     ]
 
     constructor (private translate: TranslateService) { super() }
