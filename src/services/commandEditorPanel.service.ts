@@ -1771,6 +1771,11 @@ export class CommandEditorPanelService {
                 border-top: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.12)) !important;
             }
 
+            /* Preview highlight while navigating the picker (before accepting the jump) */
+            #${BAR_ID} .monaco-editor .rangeHighlight {
+                background: rgba(140, 140, 140, 0.32) !important;
+            }
+
             /* Heading/comment line highlight after jumping from "Go to Symbol" */
             #${BAR_ID} .monaco-editor .command-editor-symbol-highlight {
                 background: rgba(77, 163, 255, 0.20);
