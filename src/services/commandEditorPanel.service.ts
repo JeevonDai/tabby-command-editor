@@ -977,9 +977,13 @@ export class CommandEditorPanelService {
                 return
             }
 
-            if (this.targetTerminalTab && !this.isTerminalTabAlive(this.targetTerminalTab)) {
+            const activeTerminal = this.getActiveTerminalTab()
+            if (activeTerminal) {
+                // Follow focus: subsequent sends should target the now-focused terminal.
+                this.targetTerminalTab = activeTerminal
+            } else if (this.targetTerminalTab && !this.isTerminalTabAlive(this.targetTerminalTab)) {
                 this.cancelBatchSend()
-                this.targetTerminalTab = this.getActiveTerminalTab()
+                this.targetTerminalTab = null
             }
 
             this.startTabAreaObserver()
@@ -1859,12 +1863,20 @@ export class CommandEditorPanelService {
     }
 
     private resolveTerminalForSend (): BaseTerminalTabComponent<any> | null {
+        // Always follow the currently focused tab so commands go where the user is looking.
+        const active = this.getActiveTerminalTab()
+        if (active) {
+            this.targetTerminalTab = active
+            return active
+        }
+
+        // No active terminal (e.g. a Settings tab is focused) 鈥?fall back to the last one.
         if (this.targetTerminalTab && this.isTerminalTabAlive(this.targetTerminalTab)) {
             return this.targetTerminalTab
         }
 
-        this.targetTerminalTab = this.getActiveTerminalTab()
-        return this.targetTerminalTab
+        this.targetTerminalTab = null
+        return null
     }
 
     private isTerminalTabAlive (terminal: BaseTerminalTabComponent<any>): boolean {
