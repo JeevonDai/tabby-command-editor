@@ -17,8 +17,6 @@ const PANEL_SIZE_VAR = '--tabby-command-editor-panel-size'
 const CONTENT_TAB_SELECTOR = 'app-root .content > .content > .content-tab.content-tab-active, app-root > .content > .content > .content-tab.content-tab-active'
 const PLUGIN_BUILD_ID = '20260530-loop6'
 const SEND_INTERVAL_STEP_SEC = 0.01
-const TOGGLE_PANEL_HOTKEY_ID = 'toggle-command-editor-panel'
-
 const LOOP_JOB_COLORS = [
     { border: '#4da3ff', bg: 'rgba(77, 163, 255, 0.14)', accent: '#4da3ff' },
     { border: '#4ec9b0', bg: 'rgba(78, 201, 176, 0.14)', accent: '#4ec9b0' },
@@ -109,20 +107,40 @@ export class CommandEditorPanelService {
         document.body.style.userSelect = ''
         this.persistPanelSize()
     }
-    private readonly onToggleHotkeyCapture = (event: KeyboardEvent): void => {
+    private readonly onPanelHotkeyCapture = (event: KeyboardEvent): void => {
         if (event.type !== 'keydown' || event.repeat) {
             return
         }
 
-        if (!this.matchesConfiguredHotkey(event, TOGGLE_PANEL_HOTKEY_ID)) {
+        const action = this.resolveCapturedPanelHotkeyAction(event)
+        if (!action) {
             return
         }
 
         // xterm handles keydown on the focused terminal before Tabby hotkey bubble runs,
-        // so Ctrl+E would reach the serial session as 0x05 (ENQ) unless we swallow it here.
+        // so Ctrl+letter shortcuts would reach the serial session unless we swallow them here.
         event.preventDefault()
         event.stopImmediatePropagation()
-        void this.togglePanel()
+        void action()
+    }
+
+    private resolveCapturedPanelHotkeyAction (event: KeyboardEvent): (() => void | Promise<void>) | null {
+        if (this.matchesConfiguredHotkey(event, 'toggle-command-editor-panel')) {
+            return () => this.togglePanel()
+        }
+        if (this.matchesConfiguredHotkey(event, 'find-in-command-editor')) {
+            return () => this.openFindWidget()
+        }
+        if (this.matchesConfiguredHotkey(event, 'open-command-editor-file')) {
+            return () => this.openFile()
+        }
+        if (this.matchesConfiguredHotkey(event, 'save-command-editor-file')) {
+            return () => this.saveFile()
+        }
+        if (this.matchesConfiguredHotkey(event, 'open-command-editor-outline')) {
+            return () => this.openOutlinePicker()
+        }
+        return null
     }
 
     private readonly onDocumentKeyCapture = (event: KeyboardEvent): void => {
@@ -214,7 +232,7 @@ export class CommandEditorPanelService {
         private translate: TranslateService,
         private zone: NgZone,
     ) {
-        document.addEventListener('keydown', this.onToggleHotkeyCapture, true)
+        document.addEventListener('keydown', this.onPanelHotkeyCapture, true)
         document.addEventListener('keydown', this.onDocumentKeyCapture, true)
         this.app.ready$.subscribe(() => {
             const filePath = this.config.store.commandEditor?.lastOpenedFile

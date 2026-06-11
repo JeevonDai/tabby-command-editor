@@ -8,17 +8,10 @@ export class CommandEditorPanelHotkeyHandler {
         private hotkeys: HotkeysService,
         private panelService: CommandEditorPanelService,
     ) {
+        // Ctrl+E / Ctrl+F / Ctrl+O / Ctrl+S / Ctrl+Q are handled in capture phase
+        // (CommandEditorPanelService.onPanelHotkeyCapture) so they never leak to xterm.
         this.hotkeys.hotkey$.subscribe(async hotkey => {
             switch (hotkey) {
-                case 'find-in-command-editor':
-                    await this.panelService.openFindWidget()
-                    break
-                case 'open-command-editor-file':
-                    await this.panelService.openFile()
-                    break
-                case 'save-command-editor-file':
-                    await this.panelService.saveFile()
-                    break
                 case 'reload-command-editor-file':
                     await this.panelService.reloadFile()
                     break
@@ -27,9 +20,6 @@ export class CommandEditorPanelHotkeyHandler {
                     break
                 case 'cancel-command-editor-loop':
                     this.panelService.cancelLoopSend()
-                    break
-                case 'open-command-editor-outline':
-                    this.panelService.openOutlinePicker()
                     break
                 case 'open-command-editor-symbol':
                     this.panelService.openSymbolPicker()
