@@ -446,17 +446,12 @@ export function showHeadingOutlinePicker (
                 setActiveIndex(activeIndex - 1)
                 break
             case 'ArrowRight':
-                if (activeNode.children.length === 0) {
-                    break
-                }
                 event.preventDefault()
                 event.stopImmediatePropagation()
-                if (!activeNode.expanded) {
+                if (activeNode.children.length > 0 && !activeNode.expanded) {
                     activeNode.expanded = true
                     syncOutlineVisibility(roots)
                     setActiveIndex(activeIndex)
-                } else {
-                    setActiveIndex(activeIndex + 1)
                 }
                 break
             case 'ArrowLeft':
