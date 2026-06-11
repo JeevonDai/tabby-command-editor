@@ -15,11 +15,33 @@ const BROADCAST_BAR_ID = 'tabby-broadcast-input-bar'
 const TAB_CONTENT_SELECTOR = 'app-root > .content > .content'
 const PANEL_SIZE_VAR = '--tabby-command-editor-panel-size'
 const CONTENT_TAB_SELECTOR = 'app-root .content > .content > .content-tab.content-tab-active, app-root > .content > .content > .content-tab.content-tab-active'
-const PLUGIN_BUILD_ID = '20260530-loop5'
+const PLUGIN_BUILD_ID = '20260530-loop6'
 const SEND_INTERVAL_STEP_SEC = 0.01
 const TOGGLE_PANEL_HOTKEY_ID = 'toggle-command-editor-panel'
 
+const LOOP_JOB_COLORS = [
+    { border: '#4da3ff', bg: 'rgba(77, 163, 255, 0.14)', accent: '#4da3ff' },
+    { border: '#4ec9b0', bg: 'rgba(78, 201, 176, 0.14)', accent: '#4ec9b0' },
+    { border: '#c586c0', bg: 'rgba(197, 134, 192, 0.14)', accent: '#c586c0' },
+    { border: '#dcdcaa', bg: 'rgba(220, 220, 170, 0.14)', accent: '#dcdcaa' },
+    { border: '#f48771', bg: 'rgba(244, 135, 113, 0.14)', accent: '#f48771' },
+    { border: '#569cd6', bg: 'rgba(86, 156, 214, 0.14)', accent: '#569cd6' },
+] as const
+
 type PanelPosition = 'bottom' | 'right'
+
+interface LoopSendJob {
+    id: number
+    terminal: BaseTerminalTabComponent<any>
+    terminalLabel: string
+    lines: string[]
+    delayMs: number
+    loopCount: number
+    colorIndex: number
+    rootEl: HTMLElement
+    labelEl: HTMLElement
+    previewEl: HTMLElement
+}
 
 interface PanelState {
     root: HTMLElement
@@ -30,11 +52,7 @@ interface PanelState {
     sendIntervalInput: HTMLInputElement
     sendLoopCountInput: HTMLInputElement
     loopSendBtn: HTMLButtonElement
-    batchStatusBar: HTMLElement
-    batchStatusHeader: HTMLElement
-    batchStatusLabel: HTMLElement
-    batchStatusPreview: HTMLElement
-    batchStatusCloseBtn: HTMLButtonElement
+    batchStatusContainer: HTMLElement
     filePath: string | null
     visible: boolean
     panelSizePx: number
@@ -50,7 +68,10 @@ export class CommandEditorPanelService {
     private layoutAdjusted = false
     private tabAreaObserver: ResizeObserver | null = null
     private activeTabSubscription: Subscription | null = null
-    private batchSendJobId = 0
+    private nextLoopSendJobId = 0
+    private nextLoopSendColorIndex = 0
+    private readonly loopSendJobs = new Map<number, LoopSendJob>()
+    private readonly terminalLoopColors = new Map<BaseTerminalTabComponent<any>, number>()
     private savedEditorSelection: monaco.Selection | null = null
     private symbolHighlightIds: string[] = []
     private targetTerminalTab: BaseTerminalTabComponent<any> | null = null
@@ -385,13 +406,13 @@ export class CommandEditorPanelService {
             return
         }
 
-        if (!state.batchStatusBar || !state.sendIntervalInput || !state.sendLoopCountInput) {
+        if (!state.batchStatusContainer || !state.sendIntervalInput || !state.sendLoopCountInput) {
             this.notifications.error(this.translate.instant('Loop send failed'))
             console.warn('[CommandEditorPanel] Panel UI outdated — close and reopen the panel (Ctrl+E)')
             return
         }
 
-        const terminalTab = _terminal ?? this.resolveTerminalForSend()
+        const terminalTab = _terminal ?? this.getActiveTerminalTab()
         if (!terminalTab) {
             this.notifications.info(this.translate.instant('No active terminal'))
             return
@@ -428,12 +449,11 @@ export class CommandEditorPanelService {
     }
 
     cancelLoopSend (): void {
-        const state = this.panel
-        if (!state?.visible || state.batchStatusBar.style.display !== 'flex') {
+        if (this.loopSendJobs.size === 0) {
             return
         }
 
-        this.cancelBatchSend()
+        this.cancelAllLoopJobs()
     }
 
     private startLoopSendJob (
@@ -443,24 +463,39 @@ export class CommandEditorPanelService {
         delayMs: number,
         loopCount: number,
     ): void {
-        const jobId = ++this.batchSendJobId
+        const jobId = ++this.nextLoopSendJobId
+        const colorIndex = this.getTerminalColorIndex(terminal)
+        const terminalLabel = this.getTerminalLabel(terminal)
+        const jobUi = this.createLoopJobElement(state, jobId, terminalLabel, colorIndex)
 
-        this.showBatchStatus(state, lines, 0, 0, loopCount)
+        const job: LoopSendJob = {
+            id: jobId,
+            terminal,
+            terminalLabel,
+            lines,
+            delayMs,
+            loopCount,
+            colorIndex,
+            rootEl: jobUi.root,
+            labelEl: jobUi.label,
+            previewEl: jobUi.preview,
+        }
+
+        this.loopSendJobs.set(jobId, job)
+        this.updateLoopJobStatus(job, 0, 0)
+        this.syncBatchStatusContainer(state)
         state.editor.layout()
 
         let sentCount = 0
 
         const finish = (): void => {
-            if (jobId !== this.batchSendJobId) {
+            if (!this.loopSendJobs.has(jobId)) {
                 return
             }
-            this.hideBatchStatus(state)
-            state.editor.layout()
+
+            this.cancelLoopJob(jobId)
             if (sentCount > 0) {
-                this.notifications.notice(`${this.translate.instant('Lines sent')} (${sentCount})`)
-            } else {
-                this.notifications.error(this.translate.instant('Loop send failed'))
-                console.error('[CommandEditorPanel] Loop send finished without sending any line')
+                this.notifications.notice(`${terminalLabel}: ${this.translate.instant('Lines sent')} (${sentCount})`)
             }
         }
 
@@ -473,7 +508,7 @@ export class CommandEditorPanelService {
         }
 
         const sendAt = (round: number, lineIndex: number): void => {
-            if (jobId !== this.batchSendJobId) {
+            if (!this.loopSendJobs.has(jobId)) {
                 return
             }
 
@@ -487,28 +522,20 @@ export class CommandEditorPanelService {
                 return
             }
 
-            const activeTerminal = this.isTerminalTabAlive(terminal) ? terminal : this.resolveTerminalForSend()
-            if (!activeTerminal?.session) {
-                this.cancelBatchSend()
-                this.notifications.info(this.translate.instant('No active terminal'))
-                console.error('[CommandEditorPanel] Loop send stopped: terminal gone at round', round + 1, 'line', lineIndex + 1)
+            if (!this.isTerminalTabAlive(terminal) || !terminal.session) {
+                this.cancelLoopJob(jobId)
+                console.error('[CommandEditorPanel] Loop send stopped: terminal closed', terminalLabel)
                 return
             }
 
-            this.updateBatchStatus(state, lines, lineIndex, round, loopCount)
+            this.updateLoopJobStatus(job, lineIndex, round)
 
             try {
-                this.sendLineToTerminal(activeTerminal, lines[lineIndex])
+                this.sendLineToTerminal(terminal, lines[lineIndex])
                 sentCount++
-                console.error(
-                    '[CommandEditorPanel] Loop send',
-                    `round ${round + 1}/${loopCount}`,
-                    `line ${lineIndex + 1}/${lines.length}`,
-                    lines[lineIndex],
-                )
             } catch (err) {
                 console.error('[CommandEditorPanel] Loop send failed:', err)
-                this.cancelBatchSend()
+                this.cancelLoopJob(jobId)
                 this.notifications.error(this.translate.instant('Loop send failed'))
                 return
             }
@@ -528,11 +555,49 @@ export class CommandEditorPanelService {
         this.zone.run(() => sendAt(0, 0))
     }
 
-    private cancelBatchSend (): void {
-        this.batchSendJobId++
+    private cancelLoopJob (jobId: number): void {
+        const job = this.loopSendJobs.get(jobId)
+        if (!job) {
+            return
+        }
+
+        this.loopSendJobs.delete(jobId)
+        job.rootEl.remove()
         if (this.panel) {
-            this.hideBatchStatus(this.panel)
+            this.syncBatchStatusContainer(this.panel)
             this.panel.editor.layout()
+        }
+    }
+
+    private cancelAllLoopJobs (): void {
+        for (const jobId of [...this.loopSendJobs.keys()]) {
+            this.cancelLoopJob(jobId)
+        }
+    }
+
+    private getTerminalColorIndex (terminal: BaseTerminalTabComponent<any>): number {
+        const existing = this.terminalLoopColors.get(terminal)
+        if (existing !== undefined) {
+            return existing
+        }
+
+        const colorIndex = this.nextLoopSendColorIndex % LOOP_JOB_COLORS.length
+        this.nextLoopSendColorIndex++
+        this.terminalLoopColors.set(terminal, colorIndex)
+        return colorIndex
+    }
+
+    private pruneDeadLoopJobs (): void {
+        for (const job of [...this.loopSendJobs.values()]) {
+            if (!this.isTerminalTabAlive(job.terminal)) {
+                this.cancelLoopJob(job.id)
+            }
+        }
+
+        for (const terminal of [...this.terminalLoopColors.keys()]) {
+            if (!this.isTerminalTabAlive(terminal)) {
+                this.terminalLoopColors.delete(terminal)
+            }
         }
     }
 
@@ -561,7 +626,7 @@ export class CommandEditorPanelService {
     }
 
     private ensurePanel (): PanelState {
-        if (this.panel && !this.panel.batchStatusPreview) {
+        if (this.panel && !this.panel.batchStatusContainer) {
             this.panel.root.remove()
             this.panel = null
         }
@@ -664,32 +729,13 @@ export class CommandEditorPanelService {
         sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, sendBtn)
         toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendGroup)
 
-        const batchStatusBar = document.createElement('div')
-        batchStatusBar.className = 'command-editor-panel-batch-status'
-
-        const batchStatusHeader = document.createElement('div')
-        batchStatusHeader.className = 'command-editor-panel-batch-status-header'
-
-        const batchStatusLabel = document.createElement('span')
-        batchStatusLabel.className = 'command-editor-panel-batch-status-label'
-
-        const batchStatusCloseBtn = document.createElement('button')
-        batchStatusCloseBtn.type = 'button'
-        batchStatusCloseBtn.className = 'command-editor-panel-batch-status-close btn btn-sm btn-outline-secondary'
-        batchStatusCloseBtn.textContent = '×'
-        batchStatusCloseBtn.title = 'F7'
-
-        batchStatusHeader.append(batchStatusLabel, batchStatusCloseBtn)
-
-        const batchStatusPreview = document.createElement('div')
-        batchStatusPreview.className = 'command-editor-panel-batch-status-preview'
-
-        batchStatusBar.append(batchStatusHeader, batchStatusPreview)
+        const batchStatusContainer = document.createElement('div')
+        batchStatusContainer.className = 'command-editor-panel-batch-status-container'
 
         const editorHost = document.createElement('div')
         editorHost.className = 'command-editor-panel-editor-host'
 
-        root.append(resizeHandle, toolbar, batchStatusBar, editorHost)
+        root.append(resizeHandle, toolbar, batchStatusContainer, editorHost)
 
         const editor = monaco.editor.create(editorHost, {
             value: '',
@@ -722,10 +768,6 @@ export class CommandEditorPanelService {
             this.savedEditorSelection = editor.getSelection()
         })
         loopSendBtn.addEventListener('click', () => void this.sendLinesWithInterval())
-        batchStatusCloseBtn.addEventListener('mousedown', (event: MouseEvent) => {
-            event.preventDefault()
-        })
-        batchStatusCloseBtn.addEventListener('click', () => this.cancelLoopSend())
         sendIntervalInput.addEventListener('change', () => this.persistSendIntervalInput(sendIntervalInput))
         sendIntervalInput.addEventListener('wheel', (event: WheelEvent) => {
             event.preventDefault()
@@ -755,11 +797,7 @@ export class CommandEditorPanelService {
             sendIntervalInput,
             sendLoopCountInput,
             loopSendBtn,
-            batchStatusBar,
-            batchStatusHeader,
-            batchStatusLabel,
-            batchStatusPreview,
-            batchStatusCloseBtn,
+            batchStatusContainer,
             filePath: null,
             visible: false,
             panelSizePx: 0,
@@ -943,7 +981,7 @@ export class CommandEditorPanelService {
     private hidePanel (state: PanelState): void {
         closeHeadingOutlinePicker()
         this.clearSymbolLineHighlight(state.editor)
-        this.cancelBatchSend()
+        this.cancelAllLoopJobs()
         this.onPanelResizeEnd()
         window.removeEventListener('mousemove', this.onPanelResizeMove)
         window.removeEventListener('mouseup', this.onPanelResizeEnd)
@@ -1004,12 +1042,12 @@ export class CommandEditorPanelService {
 
             const activeTerminal = this.getActiveTerminalTab()
             if (activeTerminal) {
-                // Follow focus: subsequent sends should target the now-focused terminal.
                 this.targetTerminalTab = activeTerminal
             } else if (this.targetTerminalTab && !this.isTerminalTabAlive(this.targetTerminalTab)) {
-                this.cancelBatchSend()
                 this.targetTerminalTab = null
             }
+
+            this.pruneDeadLoopJobs()
 
             this.startTabAreaObserver()
             this.fitAllTerminals()
@@ -1469,31 +1507,52 @@ export class CommandEditorPanelService {
                 color: var(--bs-secondary-color, #aaa);
             }
 
-            #${BAR_ID} .command-editor-panel-batch-status {
+            #${BAR_ID} .command-editor-panel-batch-status-container {
                 display: none;
                 flex: none;
                 flex-direction: column;
                 align-items: stretch;
-                gap: 4px;
+                gap: 6px;
                 padding: 6px 8px;
-                font-size: 12px;
-                color: var(--bs-secondary-color, #ccc);
-                background: rgba(47, 140, 255, 0.12);
+                max-height: min(280px, 45vh);
+                overflow-y: auto;
                 border-bottom: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.12));
             }
 
-            #${BAR_ID} .command-editor-panel-batch-status.active {
+            #${BAR_ID} .command-editor-panel-batch-status-container.active {
                 display: flex;
             }
 
-            #${BAR_ID} .command-editor-panel-batch-status-header {
+            #${BAR_ID} .command-editor-panel-batch-job {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                padding: 6px 8px 6px 10px;
+                border-left: 3px solid;
+                border-radius: 3px;
+                font-size: 12px;
+                color: var(--bs-secondary-color, #ccc);
+            }
+
+            #${BAR_ID} .command-editor-panel-batch-job-header {
                 display: flex;
                 align-items: center;
                 gap: 8px;
                 flex: none;
+                min-width: 0;
             }
 
-            #${BAR_ID} .command-editor-panel-batch-status-label {
+            #${BAR_ID} .command-editor-panel-batch-job-terminal {
+                flex: none;
+                max-width: 40%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 11px;
+                font-weight: 700;
+            }
+
+            #${BAR_ID} .command-editor-panel-batch-job-label {
                 flex: 1;
                 min-width: 0;
                 overflow: hidden;
@@ -1502,9 +1561,9 @@ export class CommandEditorPanelService {
                 font-family: monospace;
             }
 
-            #${BAR_ID} .command-editor-panel-batch-status-preview {
+            #${BAR_ID} .command-editor-panel-batch-job-preview {
                 margin: 0;
-                max-height: 120px;
+                max-height: 88px;
                 overflow: auto;
                 padding: 6px 8px;
                 border-radius: 3px;
@@ -1517,12 +1576,12 @@ export class CommandEditorPanelService {
                 word-break: break-word;
             }
 
-            #${BAR_ID} .command-editor-panel-batch-status-preview .batch-line-current {
-                color: var(--bs-primary, #4da3ff);
+            #${BAR_ID} .command-editor-panel-batch-job-preview .batch-line-current {
+                color: var(--loop-job-accent, var(--bs-primary, #4da3ff));
                 font-weight: 600;
             }
 
-            #${BAR_ID} .command-editor-panel-batch-status-close {
+            #${BAR_ID} .command-editor-panel-batch-job-close {
                 flex: none;
                 line-height: 1;
                 padding: 0 8px;
@@ -1950,14 +2009,98 @@ export class CommandEditorPanelService {
         this.config.save()
     }
 
-    private renderBatchPreview (state: PanelState, lines: string[], currentIndex: number): void {
-        state.batchStatusPreview.replaceChildren()
-        for (let index = 0; index < lines.length; index++) {
+    private getTerminalLabel (terminal: BaseTerminalTabComponent<any>): string {
+        const tab = terminal as {
+            title?: string
+            customTitle?: string
+            profile?: { name?: string; options?: { name?: string } }
+        }
+        return tab.title
+            || tab.customTitle
+            || tab.profile?.name
+            || tab.profile?.options?.name
+            || 'Terminal'
+    }
+
+    private createLoopJobElement (
+        state: PanelState,
+        jobId: number,
+        terminalLabel: string,
+        colorIndex: number,
+    ): { root: HTMLElement; label: HTMLElement; preview: HTMLElement } {
+        const palette = LOOP_JOB_COLORS[colorIndex % LOOP_JOB_COLORS.length]
+        const root = document.createElement('div')
+        root.className = 'command-editor-panel-batch-job'
+        root.dataset.jobId = String(jobId)
+        root.style.borderLeftColor = palette.border
+        root.style.background = palette.bg
+
+        const header = document.createElement('div')
+        header.className = 'command-editor-panel-batch-job-header'
+
+        const terminalBadge = document.createElement('span')
+        terminalBadge.className = 'command-editor-panel-batch-job-terminal'
+        terminalBadge.textContent = terminalLabel
+        terminalBadge.style.color = palette.accent
+        terminalBadge.title = terminalLabel
+
+        const label = document.createElement('span')
+        label.className = 'command-editor-panel-batch-job-label'
+
+        const closeBtn = document.createElement('button')
+        closeBtn.type = 'button'
+        closeBtn.className = 'command-editor-panel-batch-job-close btn btn-sm btn-outline-secondary'
+        closeBtn.textContent = '×'
+        closeBtn.title = 'Stop this loop'
+        closeBtn.addEventListener('mousedown', (event: MouseEvent) => {
+            event.preventDefault()
+        })
+        closeBtn.addEventListener('click', () => this.cancelLoopJob(jobId))
+
+        header.append(terminalBadge, label, closeBtn)
+
+        const preview = document.createElement('div')
+        preview.className = 'command-editor-panel-batch-job-preview'
+        preview.style.setProperty('--loop-job-accent', palette.accent)
+
+        root.append(header, preview)
+        state.batchStatusContainer.append(root)
+
+        return { root, label, preview }
+    }
+
+    private syncBatchStatusContainer (state: PanelState): void {
+        const visible = state.batchStatusContainer.childElementCount > 0
+        state.batchStatusContainer.style.display = visible ? 'flex' : 'none'
+        state.batchStatusContainer.classList.toggle('active', visible)
+    }
+
+    private renderLoopJobPreview (job: LoopSendJob, currentIndex: number): void {
+        job.previewEl.replaceChildren()
+        for (let index = 0; index < job.lines.length; index++) {
             const lineEl = document.createElement('div')
             lineEl.className = index === currentIndex ? 'batch-line-current' : 'batch-line'
-            lineEl.textContent = lines[index]
-            state.batchStatusPreview.append(lineEl)
+            lineEl.textContent = job.lines[index]
+            job.previewEl.append(lineEl)
         }
+    }
+
+    private updateLoopJobStatus (job: LoopSendJob, lineIndex: number, round: number): void {
+        job.labelEl.textContent = this.formatBatchStatusLabel(round, job.loopCount, lineIndex, job.lines.length)
+        this.renderLoopJobPreview(job, lineIndex)
+    }
+
+    private formatBatchStatusLabel (
+        round: number,
+        loopCount: number,
+        lineIndex: number,
+        lineCount: number,
+    ): string {
+        if (loopCount <= 1) {
+            return `Loop ${lineIndex + 1}/${lineCount}`
+        }
+
+        return `Loop ${round + 1}/${loopCount} · ${lineIndex + 1}/${lineCount}`
     }
 
     private parseLoopCountInput (value: string): number | null {
@@ -1997,52 +2140,6 @@ export class CommandEditorPanelService {
 
         this.config.store.commandEditor.sendLoopCount = parsed
         this.config.save()
-    }
-
-    private formatBatchStatusLabel (
-        round: number,
-        loopCount: number,
-        lineIndex: number,
-        lineCount: number,
-    ): string {
-        if (loopCount <= 1) {
-            return `Loop ${lineIndex + 1}/${lineCount}`
-        }
-
-        return `Loop ${round + 1}/${loopCount} · ${lineIndex + 1}/${lineCount}`
-    }
-
-    private showBatchStatus (
-        state: PanelState,
-        lines: string[],
-        lineIndex: number,
-        round: number,
-        loopCount: number,
-    ): void {
-        state.batchStatusLabel.textContent = this.formatBatchStatusLabel(round, loopCount, lineIndex, lines.length)
-        this.renderBatchPreview(state, lines, lineIndex)
-        state.batchStatusBar.classList.add('active')
-        state.batchStatusBar.style.display = 'flex'
-        state.loopSendBtn.disabled = true
-    }
-
-    private updateBatchStatus (
-        state: PanelState,
-        lines: string[],
-        lineIndex: number,
-        round: number,
-        loopCount: number,
-    ): void {
-        state.batchStatusLabel.textContent = this.formatBatchStatusLabel(round, loopCount, lineIndex, lines.length)
-        this.renderBatchPreview(state, lines, lineIndex)
-    }
-
-    private hideBatchStatus (state: PanelState): void {
-        state.batchStatusBar.classList.remove('active')
-        state.batchStatusBar.style.display = 'none'
-        state.batchStatusLabel.textContent = ''
-        state.batchStatusPreview.replaceChildren()
-        state.loopSendBtn.disabled = false
     }
 
     private getSendLoopCount (): number {
