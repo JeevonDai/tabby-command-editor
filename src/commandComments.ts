@@ -125,6 +125,90 @@ function unwrapMultilineInline (lines: string[]): string {
     return result.join('\n')
 }
 
+function getSingleLineCommentInnerBounds (line: string): { innerStart: number; innerEnd: number } | null {
+    const openIdx = line.indexOf('<!--')
+    const closeIdx = line.lastIndexOf('-->')
+    if (openIdx < 0 || closeIdx <= openIdx) {
+        return null
+    }
+
+    let innerStart = openIdx + 4
+    while (innerStart < closeIdx && line[innerStart] === ' ') {
+        innerStart++
+    }
+
+    let innerEnd = closeIdx
+    while (innerEnd > innerStart && line[innerEnd - 1] === ' ') {
+        innerEnd--
+    }
+
+    return { innerStart, innerEnd }
+}
+
+function computeWrapCursor (
+    startLine: number,
+    originalLines: string[],
+): monaco.Selection {
+    const indent = originalLines[0].match(/^\s*/)?.[0] ?? ''
+
+    if (originalLines.length === 1) {
+        const column = indent.length + '<!-- '.length + 1
+        return new monaco.Selection(startLine, column, startLine, column)
+    }
+
+    const firstLine = originalLines[0]
+    return new monaco.Selection(
+        startLine + 1,
+        firstLine.length + 1,
+        startLine + 1,
+        firstLine.length + 1,
+    )
+}
+
+/**
+ * Split a single-line `<!-- -->` comment at the cursor into a multiline block.
+ * Returns true when the edit was applied.
+ */
+export function splitMarkdownCommentNewline (editor: monaco.editor.IStandaloneCodeEditor): boolean {
+    const position = editor.getPosition()
+    const model = editor.getModel()
+    if (!position || !model) {
+        return false
+    }
+
+    const lineNumber = position.lineNumber
+    const lineContent = model.getLineContent(lineNumber)
+    if (getMarkdownCommentWrap([lineContent]) !== 'single') {
+        return false
+    }
+
+    const bounds = getSingleLineCommentInnerBounds(lineContent)
+    if (!bounds) {
+        return false
+    }
+
+    const cursorOffset = position.column - 1
+    if (cursorOffset < bounds.innerStart || cursorOffset > bounds.innerEnd) {
+        return false
+    }
+
+    const indent = lineContent.match(/^\s*/)?.[0] ?? ''
+    const before = lineContent.slice(bounds.innerStart, cursorOffset)
+    const after = lineContent.slice(cursorOffset, bounds.innerEnd)
+    const newText = `${indent}<!--\n${indent}${before}\n${indent}${after}\n${indent}-->`
+
+    editor.executeEdits('split-markdown-comment', [{
+        range: new monaco.Range(lineNumber, 1, lineNumber, lineContent.length + 1),
+        text: newText,
+        forceMoveMarkers: true,
+    }])
+
+    const cursorLine = lineNumber + 2
+    const cursorColumn = indent.length + 1
+    editor.setSelection(new monaco.Selection(cursorLine, cursorColumn, cursorLine, cursorColumn))
+    return true
+}
+
 /** Toggle Markdown/HTML block comment (`<!-- -->`) on the current selection or line(s). */
 export function toggleMarkdownComment (editor: monaco.editor.IStandaloneCodeEditor): void {
     const selection = editor.getSelection()
@@ -156,9 +240,15 @@ export function toggleMarkdownComment (editor: monaco.editor.IStandaloneCodeEdit
         newText = wrapLines(lines)
     }
 
+    const isWrapping = wrapKind === null
+
     editor.executeEdits('toggle-markdown-comment', [{
         range: editRange,
         text: newText,
         forceMoveMarkers: true,
     }])
+
+    if (isWrapping) {
+        editor.setSelection(computeWrapCursor(startLine, lines))
+    }
 }

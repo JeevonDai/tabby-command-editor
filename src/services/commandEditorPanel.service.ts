@@ -2,7 +2,7 @@ import { Injectable, NgZone } from '@angular/core'
 import { Subscription } from 'rxjs'
 import { AppService, ConfigService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
-import { stripComments, toggleMarkdownComment } from '../commandComments'
+import { splitMarkdownCommentNewline, stripComments, toggleMarkdownComment } from '../commandComments'
 import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandEditorTheme } from '../commandEditorLanguage'
 import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker, pruneQuickAccessProviders } from '../commandOutline'
 // @ts-ignore - monaco-editor types
@@ -742,7 +742,7 @@ export class CommandEditorPanelService {
         loopSendBtn.title = 'F6/F7'
 
         const sendBtn = mkBtn('Send', true)
-        sendBtn.title = 'F8/Enter'
+        sendBtn.title = 'Enter/F8'
 
         sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, sendBtn)
         toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendGroup)
@@ -1139,11 +1139,17 @@ export class CommandEditorPanelService {
                 forceMoveMarkers: true,
             }])
         }
+        /** Insert a newline without sending; inside `<!-- -->` splits into a block comment. */
+        const insertEditorNewline = () => {
+            if (!splitMarkdownCommentNewline(editor)) {
+                insertNewline()
+            }
+        }
         const editorContext = 'editorTextFocus && !findWidgetVisible && !suggestWidgetVisible'
 
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
-        editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, insertNewline, editorContext)
+        editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, insertEditorNewline, editorContext)
         editor.addCommand(
             monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash,
             () => editor.trigger('keyboard', 'editor.action.commentLine', null),
@@ -1152,6 +1158,11 @@ export class CommandEditorPanelService {
         editor.addCommand(
             monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Slash,
             () => toggleMarkdownComment(editor),
+            editorContext,
+        )
+        editor.addCommand(
+            monaco.KeyMod.Alt | monaco.KeyCode.Enter,
+            insertEditorNewline,
             editorContext,
         )
         editor.addCommand(
