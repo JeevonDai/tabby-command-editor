@@ -1671,11 +1671,23 @@ export class CommandEditorPanelService {
 
             #${BAR_ID} .command-editor-outline-twistie {
                 flex: none;
-                width: 12px;
-                font-size: 10px;
+                width: 20px;
+                font-size: 12px;
+                line-height: 1;
                 color: var(--bs-secondary-color, #888);
                 text-align: center;
                 user-select: none;
+            }
+
+            #${BAR_ID} .command-editor-outline-item.has-children .command-editor-outline-twistie {
+                cursor: pointer;
+                color: var(--bs-info, #5bc0de);
+                font-size: 18px;
+                font-weight: 700;
+            }
+
+            #${BAR_ID} .command-editor-outline-item.has-children .command-editor-outline-twistie:hover {
+                color: var(--bs-primary, #4da3ff);
             }
 
             #${BAR_ID} .command-editor-outline-label {

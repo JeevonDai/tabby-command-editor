@@ -287,12 +287,15 @@ export function closeHeadingOutlinePicker (): void {
 function updateOutlineTwistie (node: OutlineNode): void {
     if (node.children.length === 0) {
         node.twistie.textContent = ''
-        node.element.classList.remove('has-children')
+        node.twistie.title = ''
+        node.element.classList.remove('has-children', 'expanded')
         return
     }
 
     node.element.classList.add('has-children')
+    node.element.classList.toggle('expanded', node.expanded)
     node.twistie.textContent = node.expanded ? '▾' : '▸'
+    node.twistie.title = node.expanded ? 'Collapse' : 'Expand'
 }
 
 function syncOutlineVisibility (roots: OutlineNode[]): void {
@@ -376,7 +379,7 @@ export function showHeadingOutlinePicker (
 
     const title = document.createElement('div')
     title.className = 'command-editor-outline-picker-title'
-    title.textContent = 'Outline · ↑↓ · → expand · ← collapse · Enter'
+    title.textContent = 'Outline · ↑↓ · click ▶ to expand · → expand · ← collapse · Enter'
     picker.appendChild(title)
 
     walkOutlineNodes(roots, node => {
@@ -393,7 +396,6 @@ export function showHeadingOutlinePicker (
 
         item.append(twistie, label)
         item.title = `#${'#'.repeat(node.heading.level - 1)} ${node.heading.title}`
-        item.addEventListener('click', () => jumpToOutlineNode(editor, node))
 
         node.element = item
         node.twistie = twistie
@@ -417,6 +419,24 @@ export function showHeadingOutlinePicker (
         activeNode.element.classList.add('active')
         activeNode.element.scrollIntoView({ block: 'nearest' })
     }
+
+    walkOutlineNodes(roots, node => {
+        node.twistie.addEventListener('click', event => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (node.children.length === 0) {
+                return
+            }
+            node.expanded = !node.expanded
+            syncOutlineVisibility(roots)
+            const index = visibleNodes().indexOf(node)
+            if (index >= 0) {
+                setActiveIndex(index)
+            }
+        })
+
+        node.element.addEventListener('click', () => jumpToOutlineNode(editor, node))
+    })
 
     setActiveIndex(0)
     mountRoot.appendChild(picker)
