@@ -24,6 +24,15 @@ export class CommandEditorPanelHotkeyHandler {
                 case 'open-command-editor-symbol':
                     this.panelService.openSymbolPicker()
                     break
+                case 'run-command-editor-python':
+                    await this.panelService.runCurrentPythonCodeBlock()
+                    break
+                case 'toggle-command-editor-python-log':
+                    this.panelService.togglePythonLogMode()
+                    break
+                case 'open-command-editor-python-log':
+                    this.panelService.openPythonLogFolder()
+                    break
             }
         })
     }

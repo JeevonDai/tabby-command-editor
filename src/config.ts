@@ -10,6 +10,8 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             sendLineIntervalSec: 1,
             /** How many times to repeat the selected lines in loop send. */
             sendLoopCount: 1,
+            /** Whether Python stderr logs are shown as notifications or appended to a file. */
+            pythonLogMode: 'notification' as 'notification' | 'file',
         },
         hotkeys: {
             'toggle-command-editor-panel': [],
@@ -21,6 +23,9 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             'cancel-command-editor-loop': [],
             'open-command-editor-outline': [],
             'open-command-editor-symbol': [],
+            'run-command-editor-python': [],
+            'toggle-command-editor-python-log': [],
+            'open-command-editor-python-log': [],
             'command-tips': {
                 __nonStructural: true,
                 toggle: [],
@@ -44,6 +49,9 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'cancel-command-editor-loop': ['F7'],
                 'open-command-editor-outline': ['Ctrl-Q'],
                 'open-command-editor-symbol': ['鈱?Shift-Enter'],
+                'run-command-editor-python': ['F9'],
+                'toggle-command-editor-python-log': ['F10'],
+                'open-command-editor-python-log': ['Alt-Shift-G'],
             },
         },
         [Platform.Windows]: {
@@ -57,6 +65,9 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'cancel-command-editor-loop': ['F7'],
                 'open-command-editor-outline': ['Ctrl-Q'],
                 'open-command-editor-symbol': ['Alt-Shift-Enter'],
+                'run-command-editor-python': ['F9'],
+                'toggle-command-editor-python-log': ['F10'],
+                'open-command-editor-python-log': ['Alt-Shift-G'],
             },
         },
         [Platform.Linux]: {
@@ -70,6 +81,9 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'cancel-command-editor-loop': ['F7'],
                 'open-command-editor-outline': ['Ctrl-Q'],
                 'open-command-editor-symbol': ['Alt-Shift-Enter'],
+                'run-command-editor-python': ['F9'],
+                'toggle-command-editor-python-log': ['F10'],
+                'open-command-editor-python-log': ['Alt-Shift-G'],
             },
         },
     }

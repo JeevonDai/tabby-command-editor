@@ -64,8 +64,18 @@ Enter and is therefore executed by the active shell. Python 3 must be available 
 Each run is bound to the terminal that was active when it started, so changing tabs
 does not redirect its output. Multiple Python blocks can run concurrently. Active
 runs appear in the colored task bar with their bound terminal name; completed runs
-disappear automatically, and the close button stops an individual run. **F10** stops
-the most recently started Python run.
+disappear automatically, and the close button stops an individual run.
+Python `logging` output (stderr) is always appended to the matching task bar preview,
+while `print()` output (stdout) continues to be sent to the bound terminal. Press
+**F10** to toggle logs between real-time notifications and the persistent
+per-run log files. Log filenames use the bound terminal name and run timestamp,
+for example `C__WINDOWS_System32_WindowsPowerShell_v1.0_powershell.exe-2026-06-21T19-53-55-696Z.log`.
+The log contents are written exactly as emitted by Python logging without an
+additional timestamp, terminal name, or job prefix. Press **Shift+Alt+G** to
+reveal the latest log file in its folder.
+These three shortcuts are available in Tabby's hotkey settings as **Run Python
+block in command editor**, **Toggle Python log mode in command editor**, and
+**Open Python log location**.
 
 ## Configuration
 

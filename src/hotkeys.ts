@@ -40,6 +40,18 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
             id: 'open-command-editor-symbol',
             name: this.translate.instant('Go to symbol in command editor'),
         },
+        {
+            id: 'run-command-editor-python',
+            name: this.translate.instant('Run Python block in command editor'),
+        },
+        {
+            id: 'toggle-command-editor-python-log',
+            name: this.translate.instant('Toggle Python log mode in command editor'),
+        },
+        {
+            id: 'open-command-editor-python-log',
+            name: this.translate.instant('Open Python log location'),
+        },
     ]
 
     constructor (private translate: TranslateService) { super() }

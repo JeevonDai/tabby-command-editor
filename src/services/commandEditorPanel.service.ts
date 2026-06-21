@@ -28,6 +28,7 @@ const LOOP_JOB_COLORS = [
 ] as const
 
 type PanelPosition = 'bottom' | 'right'
+type PythonLogMode = 'notification' | 'file'
 
 interface LoopSendJob {
     id: number
@@ -46,8 +47,11 @@ interface PythonRunJob {
     id: number
     terminal: BaseTerminalTabComponent<any>
     terminalLabel: string
+    logFilePath: string
     execution: PythonExecution
     rootEl: HTMLElement
+    labelEl: HTMLElement
+    previewEl: HTMLElement
 }
 
 interface PanelState {
@@ -82,6 +86,7 @@ export class CommandEditorPanelService {
     private readonly loopSendJobs = new Map<number, LoopSendJob>()
     private readonly pythonRunJobs = new Map<number, PythonRunJob>()
     private readonly terminalLoopColors = new Map<BaseTerminalTabComponent<any>, number>()
+    private lastPythonLogFilePath: string | null = null
     private savedEditorSelection: monaco.Selection | null = null
     private symbolHighlightIds: string[] = []
     private targetTerminalTab: BaseTerminalTabComponent<any> | null = null
@@ -151,6 +156,15 @@ export class CommandEditorPanelService {
         }
         if (this.matchesConfiguredHotkey(event, 'open-command-editor-outline')) {
             return () => this.openOutlinePicker()
+        }
+        if (this.matchesConfiguredHotkey(event, 'run-command-editor-python')) {
+            return () => this.runCurrentPythonCodeBlock()
+        }
+        if (this.matchesConfiguredHotkey(event, 'toggle-command-editor-python-log')) {
+            return () => this.togglePythonLogMode()
+        }
+        if (this.matchesConfiguredHotkey(event, 'open-command-editor-python-log')) {
+            return () => this.openPythonLogFolder()
         }
         return null
     }
@@ -454,29 +468,36 @@ export class CommandEditorPanelService {
         const terminalLabel = this.getTerminalLabel(terminal)
         const colorIndex = this.getTerminalColorIndex(terminal)
         let sentCount = 0
-        const execution = runPythonCode(block.code, line => {
-            if (!this.pythonRunJobs.has(jobId)) {
-                return
-            }
-            if (!line.trim() || !this.isTerminalTabAlive(terminal) || !terminal.session) {
-                return
-            }
-            this.sendLineToTerminal(terminal, line)
-            sentCount++
-        })
-        const rootEl = this.createPythonJobElement(
+        const jobUi = this.createPythonJobElement(
             state,
             jobId,
             terminalLabel,
             colorIndex,
             block.code,
         )
+        const execution = runPythonCode(
+            block.code,
+            line => {
+                if (!this.pythonRunJobs.has(jobId)) {
+                    return
+                }
+                if (!line.trim() || !this.isTerminalTabAlive(terminal) || !terminal.session) {
+                    return
+                }
+                this.sendLineToTerminal(terminal, line)
+                sentCount++
+            },
+            line => this.showPythonLog(jobId, line),
+        )
         this.pythonRunJobs.set(jobId, {
             id: jobId,
             terminal,
             terminalLabel,
+            logFilePath: this.buildPythonLogFilePath(terminal),
             execution,
-            rootEl,
+            rootEl: jobUi.root,
+            labelEl: jobUi.label,
+            previewEl: jobUi.preview,
         })
         this.syncBatchStatusContainer(state)
         state.editor.layout()
@@ -507,15 +528,6 @@ export class CommandEditorPanelService {
                 state.editor.focus()
             }
         }
-    }
-
-    private cancelLatestPythonRun (): void {
-        const jobIds = [...this.pythonRunJobs.keys()]
-        const latestJobId = jobIds[jobIds.length - 1]
-        if (latestJobId === undefined) {
-            return
-        }
-        this.removePythonRunJob(latestJobId, true)
     }
 
     private removePythonRunJob (jobId: number, cancel: boolean): void {
@@ -1296,8 +1308,6 @@ export class CommandEditorPanelService {
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
         editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, insertEditorNewline, editorContext)
-        editor.addCommand(monaco.KeyCode.F9, () => void this.runCurrentPythonCodeBlock(), editorContext)
-        editor.addCommand(monaco.KeyCode.F10, () => this.cancelLatestPythonRun(), editorContext)
         editor.addCommand(
             monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash,
             () => editor.trigger('keyboard', 'editor.action.commentLine', null),
@@ -2269,7 +2279,7 @@ export class CommandEditorPanelService {
         terminalLabel: string,
         colorIndex: number,
         code: string,
-    ): HTMLElement {
+    ): { root: HTMLElement; label: HTMLElement; preview: HTMLElement } {
         const palette = LOOP_JOB_COLORS[colorIndex % LOOP_JOB_COLORS.length]
         const root = document.createElement('div')
         root.className = 'command-editor-panel-batch-job'
@@ -2309,7 +2319,123 @@ export class CommandEditorPanelService {
 
         root.append(header, preview)
         state.batchStatusContainer.append(root)
-        return root
+        return { root, label, preview }
+    }
+
+    private showPythonLog (jobId: number, line: string): void {
+        const job = this.pythonRunJobs.get(jobId)
+        const message = line.trim()
+        if (!job || !message) {
+            return
+        }
+
+        if (job.labelEl.textContent !== 'Python · log') {
+            job.labelEl.textContent = 'Python · log'
+            job.previewEl.replaceChildren()
+        }
+        const logLine = document.createElement('div')
+        logLine.className = 'batch-line-current'
+        logLine.textContent = message
+        job.previewEl.append(logLine)
+        while (job.previewEl.childElementCount > 50) {
+            job.previewEl.firstElementChild?.remove()
+        }
+        job.previewEl.scrollTop = job.previewEl.scrollHeight
+        if (this.getPythonLogMode() === 'file') {
+            this.appendPythonLog(job, message)
+        } else {
+            this.notifications.info(`${job.terminalLabel}: ${message}`)
+        }
+    }
+
+    private getPythonLogMode (): PythonLogMode {
+        return this.config.store.commandEditor?.pythonLogMode === 'file'
+            ? 'file'
+            : 'notification'
+    }
+
+    togglePythonLogMode (): void {
+        const nextMode: PythonLogMode = this.getPythonLogMode() === 'notification'
+            ? 'file'
+            : 'notification'
+        if (this.config.store.commandEditor) {
+            this.config.store.commandEditor.pythonLogMode = nextMode
+            void this.config.save()
+        }
+        this.notifications.notice(nextMode === 'file'
+            ? `Python logs will be written to ${this.getPythonLogDirectory()}`
+            : 'Python logs will be shown as notifications')
+    }
+
+    private appendPythonLog (job: PythonRunJob, message: string): void {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const fs = require('fs') as typeof import('fs')
+            fs.mkdirSync(this.getPythonLogDirectory(), { recursive: true })
+            fs.appendFileSync(job.logFilePath, `${message}\n`, 'utf8')
+            this.lastPythonLogFilePath = job.logFilePath
+        } catch (error) {
+            console.error('[CommandEditor] Failed to write Python log:', error)
+            this.notifications.error('Failed to write Python log file')
+        }
+    }
+
+    private getPythonLogDirectory (): string {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const path = require('path') as typeof import('path')
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const os = require('os') as typeof import('os')
+        const configPath = this.platform.getConfigPath()
+        const baseDirectory = configPath
+            ? path.dirname(configPath)
+            : path.join(os.homedir(), '.tabby')
+        return path.join(baseDirectory, 'logs', 'tabby-command-editor')
+    }
+
+    private buildPythonLogFilePath (terminal: BaseTerminalTabComponent<any>): string {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const path = require('path') as typeof import('path')
+        const tab = terminal as {
+            title?: string
+            customTitle?: string
+            profile?: { name?: string }
+        }
+        const terminalName = tab.customTitle || tab.title || tab.profile?.name || 'terminal'
+        const safeName = terminalName
+            .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+            .trim()
+            .substring(0, 80) || 'terminal'
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+        return path.join(this.getPythonLogDirectory(), `${safeName}-${stamp}.log`)
+    }
+
+    openPythonLogFolder (): void {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const fs = require('fs') as typeof import('fs')
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const path = require('path') as typeof import('path')
+            const logDirectory = this.getPythonLogDirectory()
+            fs.mkdirSync(logDirectory, { recursive: true })
+
+            let logFilePath = this.lastPythonLogFilePath
+            if (!logFilePath || !fs.existsSync(logFilePath)) {
+                const files = fs.readdirSync(logDirectory)
+                    .filter(name => name.endsWith('.log'))
+                    .map(name => path.join(logDirectory, name))
+                    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+                logFilePath = files[0] ?? null
+            }
+
+            if (logFilePath) {
+                this.platform.showItemInFolder(logFilePath)
+            } else {
+                this.platform.openPath(logDirectory)
+            }
+        } catch (error) {
+            console.error('[CommandEditor] Failed to open Python log folder:', error)
+            this.notifications.error('Failed to open Python log folder')
+        }
     }
 
     private syncBatchStatusContainer (state: PanelState): void {
