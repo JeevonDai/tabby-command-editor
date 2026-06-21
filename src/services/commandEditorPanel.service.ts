@@ -5,6 +5,7 @@ import { BaseTerminalTabComponent } from 'tabby-terminal'
 import { splitMarkdownCommentNewline, stripComments, toggleMarkdownComment } from '../commandComments'
 import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandEditorTheme } from '../commandEditorLanguage'
 import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker, pruneQuickAccessProviders } from '../commandOutline'
+import { findPythonCodeBlockAtCursor, PythonExecution, runPythonCode } from '../pythonCodeBlockRunner'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
 
@@ -41,6 +42,14 @@ interface LoopSendJob {
     previewEl: HTMLElement
 }
 
+interface PythonRunJob {
+    id: number
+    terminal: BaseTerminalTabComponent<any>
+    terminalLabel: string
+    execution: PythonExecution
+    rootEl: HTMLElement
+}
+
 interface PanelState {
     root: HTMLElement
     resizeHandle: HTMLElement
@@ -50,6 +59,7 @@ interface PanelState {
     sendIntervalInput: HTMLInputElement
     sendLoopCountInput: HTMLInputElement
     loopSendBtn: HTMLButtonElement
+    runCodeBtn: HTMLButtonElement
     batchStatusContainer: HTMLElement
     filePath: string | null
     visible: boolean
@@ -67,8 +77,10 @@ export class CommandEditorPanelService {
     private tabAreaObserver: ResizeObserver | null = null
     private activeTabSubscription: Subscription | null = null
     private nextLoopSendJobId = 0
+    private nextPythonRunJobId = 0
     private nextLoopSendColorIndex = 0
     private readonly loopSendJobs = new Map<number, LoopSendJob>()
+    private readonly pythonRunJobs = new Map<number, PythonRunJob>()
     private readonly terminalLoopColors = new Map<BaseTerminalTabComponent<any>, number>()
     private savedEditorSelection: monaco.Selection | null = null
     private symbolHighlightIds: string[] = []
@@ -418,6 +430,120 @@ export class CommandEditorPanelService {
         this.sendToTerminal(terminalTab, text)
     }
 
+    async runCurrentPythonCodeBlock (): Promise<void> {
+        const state = this.panel
+        const terminal = this.resolveTerminalForSend()
+        if (!state?.visible || !terminal) {
+            if (!terminal) {
+                this.notifications.info(this.translate.instant('No active terminal'))
+            }
+            return
+        }
+
+        const block = findPythonCodeBlockAtCursor(state.editor)
+        if (!block) {
+            this.notifications.info('Place the cursor inside a ```python or ```py code block')
+            return
+        }
+        if (!block.code.trim()) {
+            this.notifications.info('Python code block is empty')
+            return
+        }
+
+        const jobId = ++this.nextPythonRunJobId
+        const terminalLabel = this.getTerminalLabel(terminal)
+        const colorIndex = this.getTerminalColorIndex(terminal)
+        let sentCount = 0
+        const execution = runPythonCode(block.code, line => {
+            if (!this.pythonRunJobs.has(jobId)) {
+                return
+            }
+            if (!line.trim() || !this.isTerminalTabAlive(terminal) || !terminal.session) {
+                return
+            }
+            this.sendLineToTerminal(terminal, line)
+            sentCount++
+        })
+        const rootEl = this.createPythonJobElement(
+            state,
+            jobId,
+            terminalLabel,
+            colorIndex,
+            block.code,
+        )
+        this.pythonRunJobs.set(jobId, {
+            id: jobId,
+            terminal,
+            terminalLabel,
+            execution,
+            rootEl,
+        })
+        this.syncBatchStatusContainer(state)
+        state.editor.layout()
+
+        try {
+            await execution.promise
+            if (!this.pythonRunJobs.has(jobId)) {
+                return
+            }
+            if (sentCount === 0) {
+                this.notifications.info(`${terminalLabel}: Python completed without output`)
+                return
+            }
+
+            this.notifications.notice(`${terminalLabel}: Python output sent to terminal`)
+        } catch (error) {
+            if (!this.pythonRunJobs.has(jobId)) {
+                return
+            }
+            const message = error instanceof Error ? error.message : 'Python execution failed'
+            if (message !== 'Python execution cancelled') {
+                console.error('[CommandEditor] Python execution failed:', error)
+                this.notifications.error(`${terminalLabel}: ${message}`)
+            }
+        } finally {
+            if (this.pythonRunJobs.has(jobId)) {
+                this.removePythonRunJob(jobId, false)
+                state.editor.focus()
+            }
+        }
+    }
+
+    private cancelLatestPythonRun (): void {
+        const jobIds = [...this.pythonRunJobs.keys()]
+        const latestJobId = jobIds[jobIds.length - 1]
+        if (latestJobId === undefined) {
+            return
+        }
+        this.removePythonRunJob(latestJobId, true)
+    }
+
+    private removePythonRunJob (jobId: number, cancel: boolean): void {
+        const job = this.pythonRunJobs.get(jobId)
+        if (!job) {
+            return
+        }
+
+        this.pythonRunJobs.delete(jobId)
+        if (cancel) {
+            job.execution.cancel()
+        }
+        job.rootEl.remove()
+        if (this.panel) {
+            this.syncBatchStatusContainer(this.panel)
+            this.panel.editor.layout()
+        }
+        if (cancel) {
+            this.notifications.info(`${job.terminalLabel}: Python execution stopped`)
+        }
+    }
+
+    private cancelAllPythonRuns (): void {
+        for (const jobId of [...this.pythonRunJobs.keys()]) {
+            this.removePythonRunJob(jobId, true)
+        }
+    }
+
     async sendLinesWithInterval (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
         const state = this.panel
         if (!state?.visible) {
@@ -617,6 +743,12 @@ export class CommandEditorPanelService {
                 this.terminalLoopColors.delete(terminal)
             }
         }
+
+        for (const job of [...this.pythonRunJobs.values()]) {
+            if (!this.isTerminalTabAlive(job.terminal)) {
+                this.removePythonRunJob(job.id, true)
+            }
+        }
     }
 
     closeFile (): void {
@@ -650,6 +782,11 @@ export class CommandEditorPanelService {
         }
 
         if (this.panel && !this.panel.sendLoopCountInput) {
+            this.panel.root.remove()
+            this.panel = null
+        }
+
+        if (this.panel && !this.panel.runCodeBtn) {
             this.panel.root.remove()
             this.panel = null
         }
@@ -741,10 +878,13 @@ export class CommandEditorPanelService {
         const loopSendBtn = mkBtn('Loop')
         loopSendBtn.title = 'F6/F7'
 
+        const runCodeBtn = mkBtn('Run')
+        runCodeBtn.title = 'Run current Python code block (F9)'
+
         const sendBtn = mkBtn('Send', true)
         sendBtn.title = 'Enter/F8'
 
-        sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, sendBtn)
+        sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, runCodeBtn, sendBtn)
         toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendGroup)
 
         const batchStatusContainer = document.createElement('div')
@@ -789,6 +929,7 @@ export class CommandEditorPanelService {
             this.savedEditorSelection = editor.getSelection()
         })
         loopSendBtn.addEventListener('click', () => void this.sendLinesWithInterval())
+        runCodeBtn.addEventListener('click', () => void this.runCurrentPythonCodeBlock())
         sendIntervalInput.addEventListener('change', () => this.persistSendIntervalInput(sendIntervalInput))
         sendIntervalInput.addEventListener('wheel', (event: WheelEvent) => {
             event.preventDefault()
@@ -818,6 +959,7 @@ export class CommandEditorPanelService {
             sendIntervalInput,
             sendLoopCountInput,
             loopSendBtn,
+            runCodeBtn,
             batchStatusContainer,
             filePath: null,
             visible: false,
@@ -1003,6 +1145,7 @@ export class CommandEditorPanelService {
         closeHeadingOutlinePicker()
         this.clearSymbolLineHighlight(state.editor)
         this.cancelAllLoopJobs()
+        this.cancelAllPythonRuns()
         this.onPanelResizeEnd()
         window.removeEventListener('mousemove', this.onPanelResizeMove)
         window.removeEventListener('mouseup', this.onPanelResizeEnd)
@@ -1153,6 +1296,8 @@ export class CommandEditorPanelService {
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
         editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, insertEditorNewline, editorContext)
+        editor.addCommand(monaco.KeyCode.F9, () => void this.runCurrentPythonCodeBlock(), editorContext)
+        editor.addCommand(monaco.KeyCode.F10, () => this.cancelLatestPythonRun(), editorContext)
         editor.addCommand(
             monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash,
             () => editor.trigger('keyboard', 'editor.action.commentLine', null),
@@ -2116,6 +2261,55 @@ export class CommandEditorPanelService {
         state.batchStatusContainer.append(root)
 
         return { root, label, preview }
+    }
+
+    private createPythonJobElement (
+        state: PanelState,
+        jobId: number,
+        terminalLabel: string,
+        colorIndex: number,
+        code: string,
+    ): HTMLElement {
+        const palette = LOOP_JOB_COLORS[colorIndex % LOOP_JOB_COLORS.length]
+        const root = document.createElement('div')
+        root.className = 'command-editor-panel-batch-job'
+        root.dataset.pythonJobId = String(jobId)
+        root.style.borderLeftColor = palette.border
+        root.style.background = palette.bg
+
+        const header = document.createElement('div')
+        header.className = 'command-editor-panel-batch-job-header'
+
+        const terminalBadge = document.createElement('span')
+        terminalBadge.className = 'command-editor-panel-batch-job-terminal'
+        terminalBadge.textContent = terminalLabel
+        terminalBadge.style.color = palette.accent
+        terminalBadge.title = `Bound terminal: ${terminalLabel}`
+
+        const label = document.createElement('span')
+        label.className = 'command-editor-panel-batch-job-label'
+        label.textContent = 'Python · running'
+
+        const closeBtn = document.createElement('button')
+        closeBtn.type = 'button'
+        closeBtn.className = 'command-editor-panel-batch-job-close btn btn-sm btn-outline-secondary'
+        closeBtn.textContent = '×'
+        closeBtn.title = 'Stop this Python run'
+        closeBtn.addEventListener('mousedown', (event: MouseEvent) => {
+            event.preventDefault()
+        })
+        closeBtn.addEventListener('click', () => this.removePythonRunJob(jobId, true))
+
+        header.append(terminalBadge, label, closeBtn)
+
+        const preview = document.createElement('div')
+        preview.className = 'command-editor-panel-batch-job-preview'
+        preview.style.setProperty('--loop-job-accent', palette.accent)
+        preview.textContent = code.trim().split(/\r?\n/).slice(0, 3).join('\n')
+
+        root.append(header, preview)
+        state.batchStatusContainer.append(root)
+        return root
     }
 
     private syncBatchStatusContainer (state: PanelState): void {

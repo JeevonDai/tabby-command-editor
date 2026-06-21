@@ -10,6 +10,7 @@ A Tabby plugin that provides a rich command editor powered by Monaco (VS Code's 
 - ✂️ **Multi-cursor editing** (Ctrl+D to select next occurrence)
 - 🔍 **Find and replace** (Ctrl+F)
 - 🎨 **Shell syntax highlighting**
+- 🐍 **Run Python code blocks** and insert stdout into the active terminal
 - 📝 **Multi-line command support** (heredocs, line continuations)
 - 🌐 **Works with SSH sessions** - no remote configuration needed
 - ⚡ **Zero shell configuration** - no zshrc/bashrc changes required
@@ -43,6 +44,28 @@ npm install tabby-command-editor
 4. Press **Ctrl+Enter** to apply, or **Esc** to cancel
 
 The edited command will replace your current prompt content. Press Enter when ready to execute.
+
+### Running Python code blocks
+
+Place the cursor inside a fenced Python block and press **F9**, or click **Run**:
+
+````markdown
+```python
+print("echo hello from Python")
+```
+````
+
+Python runs locally in unbuffered mode with a 30-second output-inactivity timeout and
+a 1 MiB output limit. Each complete non-empty output line is sent to the active
+terminal immediately using the same behavior as **Send**: the line is followed by
+Enter and is therefore executed by the active shell. Python 3 must be available as
+`python3`, `python`, or Windows `py`.
+
+Each run is bound to the terminal that was active when it started, so changing tabs
+does not redirect its output. Multiple Python blocks can run concurrently. Active
+runs appear in the colored task bar with their bound terminal name; completed runs
+disappear automatically, and the close button stops an individual run. **F10** stops
+the most recently started Python run.
 
 ## Configuration
 
