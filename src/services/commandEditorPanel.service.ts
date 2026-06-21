@@ -170,7 +170,7 @@ export class CommandEditorPanelService {
     }
 
     private readonly onDocumentKeyCapture = (event: KeyboardEvent): void => {
-        if (!this.panel?.visible || !this.editorFocused) {
+        if (!this.panel?.visible) {
             return
         }
 
@@ -179,8 +179,34 @@ export class CommandEditorPanelService {
             return
         }
 
+        const findWidgetVisible = this.isFindWidgetVisible()
+
+        if (!this.editorFocused && !findWidgetVisible) {
+            return
+        }
+
         if (!(event.ctrlKey || event.metaKey)) {
             return
+        }
+
+        if (findWidgetVisible) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                this.sendFromPanel(undefined, true)
+                return
+            }
+            if (event.key === 'Enter' && event.shiftKey) {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                const block = findPythonCodeBlockAtCursor(this.panel.editor)
+                if (block) {
+                    void this.runCurrentPythonCodeBlock()
+                } else {
+                    void this.sendLinesWithInterval()
+                }
+                return
+            }
         }
 
         const key = event.key.toLowerCase()
@@ -425,7 +451,7 @@ export class CommandEditorPanelService {
         state.editor.focus()
     }
 
-    sendFromPanel (_terminal?: BaseTerminalTabComponent<any> | null): void {
+    sendFromPanel (_terminal?: BaseTerminalTabComponent<any> | null, forceLine?: boolean): void {
         const state = this.panel
         const terminalTab = _terminal ?? this.resolveTerminalForSend()
         if (!state?.visible || !terminalTab) {
@@ -435,7 +461,7 @@ export class CommandEditorPanelService {
             return
         }
 
-        const text = stripComments(this.getTextToSend(state.editor))
+        const text = stripComments(this.getTextToSend(state.editor, forceLine))
         if (!text.trim()) {
             this.notifications.info(this.translate.instant('Nothing to send'))
             return
@@ -888,10 +914,10 @@ export class CommandEditorPanelService {
         loopCountWrap.append(sendLoopCountInput, loopCountUnit)
 
         const loopSendBtn = mkBtn('Loop')
-        loopSendBtn.title = 'F6/F7'
+        loopSendBtn.title = 'F7'
 
         const runCodeBtn = mkBtn('Run')
-        runCodeBtn.title = 'Run current Python code block (F9)'
+        runCodeBtn.title = 'F9'
 
         const sendBtn = mkBtn('Send', true)
         sendBtn.title = 'Enter/F8'
@@ -1307,7 +1333,11 @@ export class CommandEditorPanelService {
 
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
-        editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, insertEditorNewline, editorContext)
+        editor.addCommand(
+            monaco.KeyMod.Shift | monaco.KeyCode.Enter,
+            () => this.saveFile(),
+            editorContext,
+        )
         editor.addCommand(
             monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash,
             () => editor.trigger('keyboard', 'editor.action.commentLine', null),
@@ -2054,14 +2084,14 @@ export class CommandEditorPanelService {
         document.head.appendChild(style)
     }
 
-    private getTextToSend (editor: monaco.editor.IStandaloneCodeEditor): string {
+    private getTextToSend (editor: monaco.editor.IStandaloneCodeEditor, forceLine?: boolean): string {
         const selection = editor.getSelection()
         const model = editor.getModel()
         if (!model) {
             return ''
         }
 
-        if (selection && !selection.isEmpty()) {
+        if (!forceLine && selection && !selection.isEmpty()) {
             return model.getValueInRange(selection)
         }
 

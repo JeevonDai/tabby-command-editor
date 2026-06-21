@@ -93,6 +93,7 @@ The default hotkey is `Ctrl+E`. You can change this in **Settings â†’ Hotkeys â†
 ### Debugging
 
 If command extraction isn't working correctly, open Tabby's DevTools (Ctrl+Shift+I) and check the Console for `[CommandExtraction]` logs. This shows:
+
 - Current cursor position
 - Detected command boundaries (via Ctrl+A/E probing)
 - Extracted command text
