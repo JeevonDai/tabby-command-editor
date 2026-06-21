@@ -764,6 +764,9 @@ export class CommandEditorPanelService {
             automaticLayout: false,
             wordWrap: 'on',
             lineNumbers: 'on',
+            folding: true,
+            foldingStrategy: 'auto',
+            showFoldingControls: 'mouseover',
             fontSize: 14,
             fontFamily: 'monospace',
             tabSize: 2,
@@ -1158,6 +1161,11 @@ export class CommandEditorPanelService {
         editor.addCommand(
             monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Slash,
             () => toggleMarkdownComment(editor),
+            editorContext,
+        )
+        editor.addCommand(
+            monaco.KeyMod.CtrlCmd | monaco.KeyCode.Backslash,
+            () => editor.trigger('keyboard', 'editor.toggleFold', null),
             editorContext,
         )
         editor.addCommand(

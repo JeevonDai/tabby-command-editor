@@ -6,11 +6,13 @@ import { Registry } from 'monaco-editor/esm/vs/platform/registry/common/platform
 import { Extensions as QuickAccessExtensions } from 'monaco-editor/esm/vs/platform/quickinput/common/quickAccess.js'
 // @ts-ignore - monaco internal module
 import { MenuRegistry, MenuId } from 'monaco-editor/esm/vs/platform/actions/common/actions.js'
+import { COMMAND_EDITOR_LANGUAGE } from './commandEditorLanguage'
 
 const COMMAND_PALETTE_ACTION_ID = 'editor.action.quickCommand'
 
 const MARKDOWN_HEADING_RE = /^\s*(#{1,6})\s+(.+)$/
 const LINE_COMMENT_RE = /^\s*\/\/+\s?(.*)$/
+const FENCE_START_RE = /^\s*(`{3,}|~{3,})(?:\s*[^`~\s]+)?.*$/
 const OUTLINE_PICKER_CLASS = 'command-editor-outline-picker'
 const OUTLINE_LANGUAGES = [
     'command-editor',
@@ -40,6 +42,12 @@ interface OutlineNode {
     element: HTMLButtonElement
     twistie: HTMLSpanElement
     expanded: boolean
+}
+
+interface MarkdownFence {
+    marker: '`' | '~'
+    length: number
+    startLine: number
 }
 
 let featuresRegistered = false
@@ -200,6 +208,7 @@ function getVisibleOutlineNodes (roots: OutlineNode[]): OutlineNode[] {
 function buildDocumentSymbols (model: monaco.editor.ITextModel): monaco.languages.DocumentSymbol[] {
     const roots: monaco.languages.DocumentSymbol[] = []
     const stack: { level: number; symbol: monaco.languages.DocumentSymbol }[] = []
+    let fence: MarkdownFence | null = null
 
     const appendSymbol = (symbol: monaco.languages.DocumentSymbol): void => {
         if (stack.length === 0) {
@@ -212,6 +221,18 @@ function buildDocumentSymbols (model: monaco.editor.ITextModel): monaco.language
     for (let line = 1; line <= model.getLineCount(); line++) {
         const content = model.getLineContent(line)
         const range = new monaco.Range(line, 1, line, content.length + 1)
+
+        if (fence) {
+            if (isFenceEnd(content, fence)) {
+                fence = null
+            }
+            continue
+        }
+
+        fence = parseFenceStart(content, line)
+        if (fence) {
+            continue
+        }
 
         const headingMatch = content.match(MARKDOWN_HEADING_RE)
         if (headingMatch) {
@@ -262,6 +283,86 @@ function buildDocumentSymbols (model: monaco.editor.ITextModel): monaco.language
     return roots
 }
 
+function parseFenceStart (line: string, lineNumber: number): MarkdownFence | null {
+    const match = line.match(FENCE_START_RE)
+    if (!match) {
+        return null
+    }
+    return {
+        marker: match[1][0] as '`' | '~',
+        length: match[1].length,
+        startLine: lineNumber,
+    }
+}
+
+function isFenceEnd (line: string, fence: MarkdownFence): boolean {
+    const marker = fence.marker === '`' ? '`' : '~'
+    const match = line.match(new RegExp(`^\\s*(${marker}{${fence.length},})\\s*$`))
+    return !!match
+}
+
+function buildMarkdownFoldingRanges (model: monaco.editor.ITextModel): monaco.languages.FoldingRange[] {
+    const ranges: monaco.languages.FoldingRange[] = []
+    const headings: { line: number; level: number }[] = []
+    let fence: MarkdownFence | null = null
+
+    for (let line = 1; line <= model.getLineCount(); line++) {
+        const content = model.getLineContent(line)
+
+        if (fence) {
+            if (isFenceEnd(content, fence)) {
+                if (line > fence.startLine) {
+                    ranges.push({
+                        start: fence.startLine,
+                        end: line,
+                        kind: monaco.languages.FoldingRangeKind.Region,
+                    })
+                }
+                fence = null
+            }
+            continue
+        }
+
+        fence = parseFenceStart(content, line)
+        if (fence) {
+            continue
+        }
+
+        const heading = content.match(MARKDOWN_HEADING_RE)
+        if (heading) {
+            headings.push({ line, level: heading[1].length })
+        }
+    }
+
+    if (fence && model.getLineCount() > fence.startLine) {
+        ranges.push({
+            start: fence.startLine,
+            end: model.getLineCount(),
+            kind: monaco.languages.FoldingRangeKind.Region,
+        })
+    }
+
+    for (let i = 0; i < headings.length; i++) {
+        const heading = headings[i]
+        let end = model.getLineCount()
+        for (let j = i + 1; j < headings.length; j++) {
+            if (headings[j].level <= heading.level) {
+                end = headings[j].line - 1
+                break
+            }
+        }
+        if (end > heading.line) {
+            ranges.push({
+                start: heading.line,
+                end,
+                kind: monaco.languages.FoldingRangeKind.Region,
+            })
+        }
+    }
+
+    return ranges.sort((a, b) => a.start - b.start || b.end - a.end)
+}
+
 export function registerMarkdownHeadingFeatures (): void {
     if (featuresRegistered) {
         return
@@ -271,6 +372,12 @@ export function registerMarkdownHeadingFeatures (): void {
     monaco.languages.registerDocumentSymbolProvider(OUTLINE_LANGUAGES, {
         provideDocumentSymbols (model) {
             return buildDocumentSymbols(model)
+        },
+    })
+
+    monaco.languages.registerFoldingRangeProvider(COMMAND_EDITOR_LANGUAGE, {
+        provideFoldingRanges (model) {
+            return buildMarkdownFoldingRanges(model)
         },
     })
 }
