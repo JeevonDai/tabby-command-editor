@@ -5,7 +5,7 @@ import { BaseTerminalTabComponent } from 'tabby-terminal'
 import { splitMarkdownCommentNewline, stripComments, toggleMarkdownComment } from '../commandComments'
 import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandEditorTheme } from '../commandEditorLanguage'
 import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker, pruneQuickAccessProviders } from '../commandOutline'
-import { findPythonCodeBlockAtCursor, PythonExecution, runPythonCode } from '../pythonCodeBlockRunner'
+import { CodeExecution, findRunnableCodeBlockAtCursor, runCodeBlock } from '../pythonCodeBlockRunner'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
 
@@ -48,7 +48,8 @@ interface PythonRunJob {
     terminal: BaseTerminalTabComponent<any>
     terminalLabel: string
     logFilePath: string
-    execution: PythonExecution
+    execution: CodeExecution
+    language: string
     rootEl: HTMLElement
     labelEl: HTMLElement
     previewEl: HTMLElement
@@ -220,7 +221,7 @@ export class CommandEditorPanelService {
             if (event.key === 'Enter' && event.shiftKey) {
                 event.preventDefault()
                 event.stopImmediatePropagation()
-                const block = findPythonCodeBlockAtCursor(this.panel.editor)
+                const block = findRunnableCodeBlockAtCursor(this.panel.editor)
                 if (block) {
                     void this.runCurrentPythonCodeBlock()
                 } else {
@@ -501,19 +502,20 @@ export class CommandEditorPanelService {
             return
         }
 
-        const block = findPythonCodeBlockAtCursor(state.editor)
+        const block = findRunnableCodeBlockAtCursor(state.editor)
         if (!block) {
-            this.notifications.info('Place the cursor inside a ```python or ```py code block')
+            this.notifications.info('Place the cursor inside a ```python, ```bash, or ```powershell code block')
             return
         }
         if (!block.code.trim()) {
-            this.notifications.info('Python code block is empty')
+            this.notifications.info('Code block is empty')
             return
         }
 
         const jobId = ++this.nextPythonRunJobId
         const terminalLabel = this.getTerminalLabel(terminal)
         const colorIndex = this.getTerminalColorIndex(terminal)
+        const languageLabel = this.getScriptLanguageLabel(block.language)
         let sentCount = 0
         const jobUi = this.createPythonJobElement(
             state,
@@ -521,9 +523,11 @@ export class CommandEditorPanelService {
             terminalLabel,
             colorIndex,
             block.code,
+            languageLabel,
         )
-        const execution = runPythonCode(
+        const execution = runCodeBlock(
             block.code,
+            block.language,
             line => {
                 if (!this.pythonRunJobs.has(jobId)) {
                     return
@@ -542,6 +546,7 @@ export class CommandEditorPanelService {
             terminalLabel,
             logFilePath: this.buildPythonLogFilePath(terminal),
             execution,
+            language: languageLabel,
             rootEl: jobUi.root,
             labelEl: jobUi.label,
             previewEl: jobUi.preview,
@@ -555,18 +560,18 @@ export class CommandEditorPanelService {
                 return
             }
             if (sentCount === 0) {
-                this.notifications.info(`${terminalLabel}: Python completed without output`)
+                this.notifications.info(`${terminalLabel}: ${languageLabel} completed without output`)
                 return
             }
 
-            this.notifications.notice(`${terminalLabel}: Python output sent to terminal`)
+            this.notifications.notice(`${terminalLabel}: ${languageLabel} output sent to terminal`)
         } catch (error) {
             if (!this.pythonRunJobs.has(jobId)) {
                 return
             }
-            const message = error instanceof Error ? error.message : 'Python execution failed'
-            if (message !== 'Python execution cancelled') {
-                console.error('[CommandEditor] Python execution failed:', error)
+            const message = error instanceof Error ? error.message : 'Script execution failed'
+            if (message !== 'Script execution cancelled') {
+                console.error('[CommandEditor] Script execution failed:', error)
                 this.notifications.error(`${terminalLabel}: ${message}`)
             }
         } finally {
@@ -2324,12 +2329,31 @@ export class CommandEditorPanelService {
         return { root, label, preview }
     }
 
+    private getScriptLanguageLabel (language: string): string {
+        switch (language.toLowerCase()) {
+            case 'py':
+            case 'python':
+                return 'Python'
+            case 'bash':
+            case 'sh':
+            case 'shell':
+                return 'bash'
+            case 'powershell':
+            case 'pwsh':
+            case 'ps1':
+                return 'PowerShell'
+            default:
+                return language
+        }
+    }
+
     private createPythonJobElement (
         state: PanelState,
         jobId: number,
         terminalLabel: string,
         colorIndex: number,
         code: string,
+        languageLabel: string,
     ): { root: HTMLElement; label: HTMLElement; preview: HTMLElement } {
         const palette = LOOP_JOB_COLORS[colorIndex % LOOP_JOB_COLORS.length]
         const root = document.createElement('div')
@@ -2349,13 +2373,13 @@ export class CommandEditorPanelService {
 
         const label = document.createElement('span')
         label.className = 'command-editor-panel-batch-job-label'
-        label.textContent = 'Python · running'
+        label.textContent = `${languageLabel} · running`
 
         const closeBtn = document.createElement('button')
         closeBtn.type = 'button'
         closeBtn.className = 'command-editor-panel-batch-job-close btn btn-sm btn-outline-secondary'
         closeBtn.textContent = '×'
-        closeBtn.title = 'Stop this Python run'
+        closeBtn.title = `Stop this ${languageLabel} run`
         closeBtn.addEventListener('mousedown', (event: MouseEvent) => {
             event.preventDefault()
         })
@@ -2380,8 +2404,9 @@ export class CommandEditorPanelService {
             return
         }
 
-        if (job.labelEl.textContent !== 'Python · log') {
-            job.labelEl.textContent = 'Python · log'
+        const logLabel = `${job.language} · log`
+        if (job.labelEl.textContent !== logLabel) {
+            job.labelEl.textContent = logLabel
             job.previewEl.replaceChildren()
         }
         const logLine = document.createElement('div')
