@@ -505,6 +505,128 @@ function getBashRunners (): ScriptRunner[] {
     ]
 }
 
+export type TerminalShellKind = 'wsl' | 'msys' | 'powershell' | 'unix' | 'ssh' | 'unknown'
+
+export interface TerminalProfileHint {
+    id?: string
+    name?: string
+    provider?: string
+    options?: { name?: string, [key: string]: unknown }
+}
+
+export function normalizeBashScript (code: string): string {
+    const normalized = code.replace(/\r\n?/g, '\n')
+    return normalized.endsWith('\n') ? normalized : `${normalized}\n`
+}
+
+export function windowsPathToWslPath (windowsPath: string): string {
+    const forward = windowsPath.replace(/\\/g, '/')
+    const match = forward.match(/^([a-zA-Z]):\/(.*)$/)
+    if (!match) {
+        return forward
+    }
+    return `/mnt/${match[1].toLowerCase()}/${match[2]}`
+}
+
+export function windowsPathToMsysPath (windowsPath: string): string {
+    const forward = windowsPath.replace(/\\/g, '/')
+    const match = forward.match(/^([a-zA-Z]):\/(.*)$/)
+    if (!match) {
+        return forward
+    }
+    return `/${match[1].toLowerCase()}/${match[2]}`
+}
+
+export function detectTerminalShellKind (
+    profile: TerminalProfileHint | undefined,
+    label = '',
+): TerminalShellKind {
+    const parts = [
+        profile?.provider,
+        profile?.id,
+        profile?.name,
+        profile?.options?.name,
+        label,
+    ].filter(Boolean).join(' ').toLowerCase()
+
+    if (/\bssh\b|tabby-ssh|remote/.test(parts)) {
+        return 'ssh'
+    }
+    if (/wsl|ubuntu|debian|fedora|arch|kali|opensuse|alpine|\bzsh\b|\bbash\b/.test(parts)) {
+        return 'wsl'
+    }
+    if (/git\s*bash|msys|mingw|cygwin/.test(parts)) {
+        return 'msys'
+    }
+    if (/powershell|pwsh|windows\s*powershell/.test(parts)) {
+        return 'powershell'
+    }
+    if (process.platform !== 'win32') {
+        return 'unix'
+    }
+    return 'unknown'
+}
+
+function shellQuoteSingle (value: string): string {
+    return `'${value.replace(/'/g, `'\"'\"'`)}'`
+}
+
+export function buildBashTerminalCommand (
+    scriptPath: string,
+    shellKind: TerminalShellKind,
+): string {
+    if (process.platform !== 'win32') {
+        return `bash ${shellQuoteSingle(scriptPath)}`
+    }
+
+    switch (shellKind) {
+        case 'wsl':
+        case 'unix':
+            return `bash ${shellQuoteSingle(windowsPathToWslPath(scriptPath))}`
+        case 'msys':
+            return `bash ${shellQuoteSingle(windowsPathToMsysPath(scriptPath))}`
+        case 'powershell':
+        case 'unknown':
+            return `wsl bash ${shellQuoteSingle(windowsPathToWslPath(scriptPath))}`
+        default:
+            return `bash ${shellQuoteSingle(windowsPathToWslPath(scriptPath))}`
+    }
+}
+
+export function buildBashHeredocPayload (code: string): string {
+    const normalized = normalizeBashScript(code)
+    let delimiter = 'TABBY_SCRIPT_EOF'
+    while (normalized.includes(delimiter)) {
+        delimiter += '_'
+    }
+    return `bash <<'${delimiter}'\n${normalized}${delimiter}`
+}
+
+export function writeTempBashScript (code: string): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs') as typeof import('fs')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const os = require('os') as typeof import('os')
+    const scriptPath = path.join(os.tmpdir(), `tabby-cmd-editor-${Date.now()}.sh`)
+    fs.writeFileSync(scriptPath, normalizeBashScript(code), 'utf8')
+    return scriptPath
+}
+
+export function resolveBashTerminalPayload (
+    code: string,
+    shellKind: TerminalShellKind,
+): { mode: 'line', command: string } | { mode: 'multiline', command: string } {
+    if (shellKind === 'ssh') {
+        return { mode: 'multiline', command: buildBashHeredocPayload(code) }
+    }
+
+    const scriptPath = writeTempBashScript(code)
+    return {
+        mode: 'line',
+        command: buildBashTerminalCommand(scriptPath, shellKind),
+    }
+}
+
 function getPowerShellRunners (): ScriptRunner[] {
     // `-Command -` reads the script from stdin and runs it on EOF.
     const args = ['-NoProfile', '-NonInteractive', '-Command', '-']

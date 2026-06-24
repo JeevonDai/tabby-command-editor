@@ -5,7 +5,15 @@ import { BaseTerminalTabComponent } from 'tabby-terminal'
 import { splitMarkdownCommentNewline, stripComments, toggleMarkdownComment } from '../commandComments'
 import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandEditorTheme } from '../commandEditorLanguage'
 import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker, pruneQuickAccessProviders } from '../commandOutline'
-import { CodeExecution, findRunnableCodeBlockAtCursor, runCodeBlock } from '../pythonCodeBlockRunner'
+import {
+    CodeExecution,
+    detectTerminalShellKind,
+    findRunnableCodeBlockAtCursor,
+    resolveBashTerminalPayload,
+    resolveScriptLanguage,
+    runCodeBlock,
+    TerminalProfileHint,
+} from '../pythonCodeBlockRunner'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
 
@@ -512,6 +520,11 @@ export class CommandEditorPanelService {
             return
         }
 
+        if (resolveScriptLanguage(block.language) === 'bash') {
+            await this.runBashCodeBlockInTerminal(block.code, terminal, state)
+            return
+        }
+
         const jobId = ++this.nextPythonRunJobId
         const terminalLabel = this.getTerminalLabel(terminal)
         const colorIndex = this.getTerminalColorIndex(terminal)
@@ -579,6 +592,37 @@ export class CommandEditorPanelService {
                 this.removePythonRunJob(jobId, false)
                 state.editor.focus()
             }
+        }
+    }
+
+    private async runBashCodeBlockInTerminal (
+        code: string,
+        terminal: BaseTerminalTabComponent<any>,
+        state: PanelState,
+    ): Promise<void> {
+        if (!terminal.session) {
+            this.notifications.error(this.translate.instant('Terminal session not ready'))
+            return
+        }
+
+        const terminalLabel = this.getTerminalLabel(terminal)
+        const tab = terminal as { profile?: TerminalProfileHint }
+        const shellKind = detectTerminalShellKind(tab.profile, terminalLabel)
+        const payload = resolveBashTerminalPayload(code, shellKind)
+
+        try {
+            if (payload.mode === 'multiline') {
+                this.sendToTerminal(terminal, payload.command)
+            } else {
+                this.sendLineToTerminal(terminal, payload.command)
+            }
+            this.notifications.notice(`${terminalLabel}: bash script sent to terminal`)
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to run bash script'
+            console.error('[CommandEditor] Bash terminal execution failed:', error)
+            this.notifications.error(`${terminalLabel}: ${message}`)
+        } finally {
+            state.editor.focus()
         }
     }
 
