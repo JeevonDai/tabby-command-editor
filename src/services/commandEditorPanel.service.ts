@@ -185,6 +185,27 @@ export class CommandEditorPanelService {
             return
         }
 
+        if (findWidgetVisible) {
+            if (event.key === 'F7') {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                void this.sendLinesWithInterval()
+                return
+            }
+            if (event.key === 'F8') {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                this.sendFromPanel(undefined, true)
+                return
+            }
+            if (event.key === 'F9') {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                void this.runCurrentPythonCodeBlock()
+                return
+            }
+        }
+
         if (!(event.ctrlKey || event.metaKey)) {
             return
         }

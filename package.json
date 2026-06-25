@@ -49,6 +49,7 @@
     "style-loader": "^3.3.1",
     "svg-inline-loader": "^0.8.2",
     "tabby-core": "1.0.197-nightly.1",
+    "tabby-settings": "^1.0.197-nightly.1",
     "tabby-terminal": "1.0.197-nightly.1",
     "typescript": "~4.9.5",
     "webpack": "^5.75.0",
@@ -57,11 +58,12 @@
     "yaml-loader": "^0.8.0"
   },
   "peerDependencies": {
-    "@angular/core": "*",
     "@angular/common": "*",
+    "@angular/core": "*",
     "@ng-bootstrap/ng-bootstrap": "*",
+    "rxjs": "*",
     "tabby-core": "*",
-    "tabby-terminal": "*",
-    "rxjs": "*"
+    "tabby-settings": "*",
+    "tabby-terminal": "*"
   }
 }

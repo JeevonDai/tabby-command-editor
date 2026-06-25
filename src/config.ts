@@ -48,7 +48,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-lines': ['F7'],
                 'cancel-command-editor-loop': [],
                 'open-command-editor-outline': ['Ctrl-Q'],
-                'open-command-editor-symbol': ['鈱?Shift-Enter'],
+                'open-command-editor-symbol': ['Alt-Shift-Enter'],
                 'run-command-editor-python': ['F9'],
                 'toggle-command-editor-python-log': ['F10'],
                 'open-command-editor-python-log': ['Alt-Shift-G'],
