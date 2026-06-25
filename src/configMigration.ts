@@ -52,13 +52,15 @@ export class CommandEditorConfigMigration {
             changed = true
         }
 
-        // Removed hotkey commands: run code block (legacy) is covered by F9,
-        // and block-run-mode toggling is now a built-in global F10 key.
-        for (const removedId of ['run-command-editor-python', 'toggle-command-editor-python-log']) {
-            if (hotkeys && removedId in hotkeys) {
-                delete hotkeys[removedId]
-                changed = true
-            }
+        // Run code block (legacy) is covered by F9 (send-command-editor-lines).
+        if (hotkeys?.['run-command-editor-python']) {
+            delete hotkeys['run-command-editor-python']
+            changed = true
+        }
+
+        if (hotkeys && !('toggle-command-editor-python-log' in hotkeys)) {
+            hotkeys['toggle-command-editor-python-log'] = ['F10']
+            changed = true
         }
 
         if (hotkeys?.['auto-send-command-editor']?.length) {

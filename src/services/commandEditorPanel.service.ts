@@ -75,6 +75,7 @@ interface PanelState {
     sendIntervalUnitSelect: HTMLSelectElement
     sendLoopCountInput: HTMLInputElement
     loopSendBtn: HTMLButtonElement
+    blockRunModeBtn: HTMLButtonElement
     batchStatusContainer: HTMLElement
     filePath: string | null
     visible: boolean
@@ -167,11 +168,6 @@ export class CommandEditorPanelService {
         }
         if (this.matchesConfiguredHotkey(event, 'open-command-editor-outline')) {
             return () => this.openOutlinePicker()
-        }
-        // F10 toggles block run mode as a built-in global key (not a configurable
-        // hotkey command); only acts while the panel is open.
-        if (this.panel?.visible && event.key === 'F10' && this.hasNoModifierKeys(event)) {
-            return () => this.toggleBlockRunMode()
         }
         if (this.matchesConfiguredHotkey(event, 'open-command-editor-python-log')) {
             return () => this.openPythonLogFolder()
@@ -1092,13 +1088,17 @@ export class CommandEditorPanelService {
 
         loopCountWrap.append(sendLoopCountInput, loopCountUnit)
 
+        const blockRunModeBtn = document.createElement('button')
+        blockRunModeBtn.type = 'button'
+        blockRunModeBtn.className = 'btn btn-sm command-editor-block-run-mode-btn'
+
         const loopSendBtn = mkBtn('Loop or Run')
         loopSendBtn.title = 'F9 — Loop or Run; comments stripped; code block: run; line: send and move down (blank/comment-only: move only); selection: loop (interval × count)'
 
         const sendBtn = mkBtn('Send', true)
         sendBtn.title = 'Enter/F8 — comments stripped; line or selection; send immediately; code block: disabled (use Loop or Run / F9)'
 
-        sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, sendBtn)
+        sendGroup.append(intervalWrap, loopCountWrap, blockRunModeBtn, loopSendBtn, sendBtn)
         toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendGroup)
 
         const batchStatusContainer = document.createElement('div')
@@ -1137,6 +1137,7 @@ export class CommandEditorPanelService {
         openBtn.addEventListener('click', () => this.openFile())
         saveBtn.addEventListener('click', () => this.saveFile())
         closeBtn.addEventListener('click', () => this.closeFile())
+        blockRunModeBtn.addEventListener('click', () => this.toggleBlockRunMode())
         sendBtn.addEventListener('click', () => this.sendFromPanel())
         loopSendBtn.addEventListener('mousedown', (event: MouseEvent) => {
             event.preventDefault()
@@ -1179,11 +1180,13 @@ export class CommandEditorPanelService {
             sendIntervalUnitSelect,
             sendLoopCountInput,
             loopSendBtn,
+            blockRunModeBtn,
             batchStatusContainer,
             filePath: null,
             visible: false,
             panelSizePx: 0,
         }
+        this.refreshBlockRunModeButton()
         this.applyPendingLastOpenedFile(this.panel)
         return this.panel
     }
@@ -1953,6 +1956,39 @@ export class CommandEditorPanelService {
                 color: var(--bs-secondary-color, #aaa);
             }
 
+            #${BAR_ID} .command-editor-block-run-mode-btn {
+                flex: none;
+                min-width: 36px;
+                padding-left: 8px;
+                padding-right: 8px;
+                font-size: 11px;
+                font-weight: 600;
+                border-width: 1px;
+                border-style: solid;
+            }
+
+            #${BAR_ID} .command-editor-block-run-mode-btn.mode-terminal {
+                color: #fff;
+                background-color: #198754;
+                border-color: #157347;
+            }
+
+            #${BAR_ID} .command-editor-block-run-mode-btn.mode-terminal:hover {
+                background-color: #157347;
+                border-color: #146c43;
+            }
+
+            #${BAR_ID} .command-editor-block-run-mode-btn.mode-background {
+                color: #fff;
+                background-color: #6c757d;
+                border-color: #5c636a;
+            }
+
+            #${BAR_ID} .command-editor-block-run-mode-btn.mode-background:hover {
+                background-color: #5c636a;
+                border-color: #565e64;
+            }
+
             #${BAR_ID} .command-editor-panel-batch-status-container {
                 display: none;
                 flex: none;
@@ -2450,10 +2486,6 @@ export class CommandEditorPanelService {
         this.persistSendIntervalInput(state)
     }
 
-    private hasNoModifierKeys (event: KeyboardEvent): boolean {
-        return !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
-    }
-
     private matchesConfiguredHotkey (event: KeyboardEvent, hotkeyId: string): boolean {
         const raw = (this.config.store.hotkeys as Record<string, string[] | string[][] | undefined> | undefined)?.[hotkeyId]
         if (!raw?.length) {
@@ -2738,8 +2770,31 @@ export class CommandEditorPanelService {
 
     private getBlockRunModeLabel (): string {
         return this.getBlockRunMode() === 'terminal'
-            ? 'terminal file'
-            : 'background'
+            ? 'TF'
+            : 'BG'
+    }
+
+    private getBlockRunModeHint (): string {
+        return this.getBlockRunMode() === 'terminal'
+            ? 'TF — send code block file to the active terminal'
+            : 'BG — run in background; stdout→terminal, stderr→log file'
+    }
+
+    private refreshBlockRunModeButton (): void {
+        const btn = this.panel?.blockRunModeBtn
+        if (!btn) {
+            return
+        }
+
+        const mode = this.getBlockRunMode()
+        btn.classList.remove('mode-terminal', 'mode-background')
+        btn.classList.add(mode === 'terminal' ? 'mode-terminal' : 'mode-background')
+        btn.textContent = this.getBlockRunModeLabel()
+        btn.title = mode === 'terminal'
+            ? 'TF — send code block file to the active terminal (F10; click to switch to BG)'
+            : 'BG — run in background; stdout→terminal, stderr→log file (F10; click to switch to TF)'
+        btn.setAttribute('aria-pressed', mode === 'background' ? 'true' : 'false')
+        btn.setAttribute('aria-label', this.getBlockRunModeHint())
     }
 
     toggleBlockRunMode (): void {
@@ -2751,8 +2806,9 @@ export class CommandEditorPanelService {
             void this.config.save()
         }
         this.notifications.notice(nextMode === 'terminal'
-            ? 'Code blocks run as temp files in the active terminal'
-            : 'Code blocks run in background (stdout→terminal, stderr→log file)')
+            ? 'TF — send code block file to the active terminal'
+            : 'BG — run in background; stdout→terminal, stderr→log file')
+        this.refreshBlockRunModeButton()
     }
 
     private appendPythonLog (job: PythonRunJob, message: string): void {

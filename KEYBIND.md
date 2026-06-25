@@ -1,6 +1,6 @@
-# Tabby Command Editor — 快捷键绑定
+## Tabby Command Editor — 快捷键绑定
 
-## 一、编辑器内快捷键（焦点在编辑区，搜索框未打开，建议框未弹出）
+### 一、编辑器内快捷键（焦点在编辑区，搜索框未打开，建议框未弹出）
 
 | 快捷键 | 功能 | 备注 |
 |---|---|---|
@@ -22,7 +22,7 @@
 
 ---
 
-## 二、Ctrl+F 搜索界面快捷键（搜索框可见时）
+### 二、Ctrl+F 搜索界面快捷键（搜索框可见时）
 
 | 快捷键 | 功能 | 备注 |
 |---|---|---|
@@ -38,7 +38,7 @@
 
 ---
 
-## 三、全局快捷键（可配置，以下为 Windows/Linux 默认值）
+### 三、全局快捷键（可配置，以下为 Windows/Linux 默认值）
 
 | 快捷键 | 功能 | 对应的 Hotkey ID |
 |---|---|---|
@@ -50,17 +50,18 @@
 | `F5` | 重新加载文件 | `reload-command-editor-file` |
 | `F8` | **Send** | `send-command-editor-panel` |
 | `F9` | **Loop or Run**（代码块内即运行整块） | `send-command-editor-lines` |
+| `F10` | **Block Run Mode** — TF / BG | `toggle-command-editor-python-log` |
 | `Alt + Shift + Enter` | 跳转到符号 | `open-command-editor-symbol` |
 | `Alt + Shift + G` | 打开 Python 日志文件夹 | `open-command-editor-python-log` |
 
 
-> F10（Block Run Mode） 为内置全局按键：面板打开时按 F10 即可切换代码块运行方式（终端文件 / 后台运行），无需在「设置 → 快捷键」中单独配置。
+> **Block run mode (F10)** 按钮显示 **TF** / **BG**：**绿色 TF** = 发送文件到终端执行，**灰色 BG** = 后台运行、日志记录到 log；悬停有完整说明，点击或按 F10 可切换。
 >
-> F9（Loop or Run） 运行代码块和循环发送是一个热键：光标位于代码块内时即直接运行代码块，根据 ```python、```bash、```powershell 区分解释器（bash 需要安装 wsl 使用）。
+> **Loop or Run(F9)** 运行代码块和循环发送共用一个热键：光标位于代码块内时即直接运行代码块，根据 ```python、```bash、```powershell 区分解释器（bash 需要安装 wsl 使用）。
 
 ---
 
-## 四、Send 与 Loop or Run 区别
+### 四、Send 与 Loop or Run 区别
 
 | 模式 | 行为 |
 |---|---|
@@ -68,7 +69,7 @@
 | **Loop or Run (F9)** | 见下表 |
 | **Block Run Mode (F10)** | 切换 python/powershell/bash 代码块运行方式（见下表） |
 
-### F10 代码块运行模式
+**F10 代码块运行模式**
 
 | 模式 | 行为 |
 |---|---|
@@ -77,7 +78,7 @@
 
 ---
 
-## 五、工具栏按钮
+### 五、工具栏按钮
 
 | 按钮 | 功能 | 等效快捷键 |
 |---|---|---|
@@ -89,7 +90,7 @@
 
 ---
 
-## 六、批量发送操作
+### 六、批量发送操作
 
 | 操作 | 说明 |
 |---|---|
