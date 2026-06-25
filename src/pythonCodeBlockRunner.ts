@@ -319,11 +319,9 @@ function normalizeCode (language: ScriptLanguage, code: string): string {
     }
     if (language === 'powershell' && process.platform === 'win32') {
         // Electron/Tabby often inherit a stripped PATH; refresh from registry before user code runs.
+        // Must stay on one line: multiline `@(...)` array literals break `powershell -Command -` stdin parsing.
         const preamble = [
-            '$__paths = @(',
-            '    [System.Environment]::GetEnvironmentVariable(\'Path\', \'Machine\'),',
-            '    [System.Environment]::GetEnvironmentVariable(\'Path\', \'User\')',
-            ') | Where-Object { $_ }',
+            '$__paths = @([System.Environment]::GetEnvironmentVariable(\'Path\', \'Machine\'), [System.Environment]::GetEnvironmentVariable(\'Path\', \'User\')) | Where-Object { $_ }',
             '$env:Path = ($__paths -join \';\')',
             '',
         ].join('\n')
