@@ -3,22 +3,14 @@ import * as monaco from 'monaco-editor'
 import { ChildProcessWithoutNullStreams, execSync, spawn } from 'child_process'
 import * as path from 'path'
 import { StringDecoder } from 'string_decoder'
+import {
+    CodeBlockRunSettings,
+    CodeBlockTerminalFileCommands,
+    resolveCodeBlockRunSettings,
+    ScriptLanguage,
+} from './codeBlockRunConfig'
 
-export type ScriptLanguage = 'python' | 'bash' | 'powershell'
-
-// Maps the fence language tag (lower-cased) to the interpreter family used to run it.
-const LANGUAGE_ALIASES: Record<string, ScriptLanguage> = {
-    python: 'python',
-    py: 'python',
-    bash: 'bash',
-    sh: 'bash',
-    shell: 'bash',
-    powershell: 'powershell',
-    pwsh: 'powershell',
-    ps1: 'powershell',
-}
-
-const RUNNABLE_LANGUAGES = new Set(Object.keys(LANGUAGE_ALIASES))
+export type { ScriptLanguage } from './codeBlockRunConfig'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024
@@ -46,18 +38,18 @@ interface Fence {
     startLine: number
 }
 
-interface ScriptRunner {
-    command: string
-    args: string[]
-}
-
-export function resolveScriptLanguage (language: string): ScriptLanguage | null {
-    return LANGUAGE_ALIASES[language.toLowerCase()] ?? null
+export function resolveScriptLanguage (
+    language: string,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
+): ScriptLanguage | null {
+    return settings.languageAliases[language.toLowerCase()] ?? null
 }
 
 export function findRunnableCodeBlockAtCursor (
     editor: monaco.editor.IStandaloneCodeEditor,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): RunnableCodeBlock | null {
+    const runnableLanguages = new Set(Object.keys(settings.languageAliases))
     const model = editor.getModel()
     const position = editor.getPosition()
     if (!model || !position) {
@@ -80,7 +72,7 @@ export function findRunnableCodeBlockAtCursor (
         if (
             position.lineNumber >= fence.startLine
             && position.lineNumber <= line
-            && RUNNABLE_LANGUAGES.has(fence.language)
+            && runnableLanguages.has(fence.language)
         ) {
             return {
                 code: model.getValueInRange(new monaco.Range(
@@ -101,7 +93,7 @@ export function findRunnableCodeBlockAtCursor (
     if (
         fence
         && position.lineNumber >= fence.startLine
-        && RUNNABLE_LANGUAGES.has(fence.language)
+        && runnableLanguages.has(fence.language)
     ) {
         return {
             code: model.getValueInRange(new monaco.Range(
@@ -126,19 +118,20 @@ export function runCodeBlock (
     onStderrLine: (line: string) => void,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): CodeExecution {
     let activeChild: ChildProcessWithoutNullStreams | null = null
     let cancelled = false
 
     const promise = new Promise<void>((resolve, reject) => {
-        const resolved = resolveScriptLanguage(language)
+        const resolved = resolveScriptLanguage(language, settings)
         if (!resolved) {
             reject(new Error(`Unsupported code block language: ${language}`))
             return
         }
 
         const scriptLanguage = resolved
-        const runners = getRunners(scriptLanguage)
+        const runners = settings.backgroundRunners[scriptLanguage].filter(runner => runner.command)
         const payload = normalizeCode(scriptLanguage, code)
 
         const tryRunner = (index: number): void => {
@@ -464,45 +457,6 @@ function isFenceEnd (line: string, fence: Fence): boolean {
     return new RegExp(`^\\s*${marker}{${fence.length},}\\s*$`).test(line)
 }
 
-function getRunners (language: ScriptLanguage): ScriptRunner[] {
-    switch (language) {
-        case 'python':
-            return getPythonRunners()
-        case 'bash':
-            return getBashRunners()
-        case 'powershell':
-            return getPowerShellRunners()
-    }
-}
-
-function getPythonRunners (): ScriptRunner[] {
-    if (process.platform === 'win32') {
-        return resolveWindowsPythonRunners()
-    }
-
-    return [
-        { command: 'python3', args: ['-u', '-'] },
-        { command: 'python', args: ['-u', '-'] },
-    ]
-}
-
-function getBashRunners (): ScriptRunner[] {
-    // `bash -s` reads the script from stdin.
-    if (process.platform === 'win32') {
-        const executables = locateExecutablesOnWindows('bash')
-        const runners = executables.map(command => ({ command, args: ['-s'] }))
-        if (runners.length === 0) {
-            runners.push({ command: 'bash', args: ['-s'] })
-        }
-        return runners
-    }
-
-    return [
-        { command: 'bash', args: ['-s'] },
-        { command: 'sh', args: ['-s'] },
-    ]
-}
-
 export type TerminalShellKind = 'wsl' | 'msys' | 'powershell' | 'unix' | 'ssh' | 'unknown'
 
 export interface TerminalProfileHint {
@@ -572,23 +526,10 @@ function shellQuoteSingle (value: string): string {
 export function buildBashTerminalCommand (
     scriptPath: string,
     shellKind: TerminalShellKind,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): string {
-    if (process.platform !== 'win32') {
-        return `bash ${shellQuoteSingle(scriptPath)}`
-    }
-
-    switch (shellKind) {
-        case 'wsl':
-        case 'unix':
-            return `bash ${shellQuoteSingle(windowsPathToWslPath(scriptPath))}`
-        case 'msys':
-            return `bash ${shellQuoteSingle(windowsPathToMsysPath(scriptPath))}`
-        case 'powershell':
-        case 'unknown':
-            return `wsl bash ${shellQuoteSingle(windowsPathToWslPath(scriptPath))}`
-        default:
-            return `bash ${shellQuoteSingle(windowsPathToWslPath(scriptPath))}`
-    }
+    const quoted = quoteTerminalPath(scriptPath, shellKind)
+    return buildTerminalFileCommand('bash', shellKind, quoted, settings.terminalFileCommands.bash)
 }
 
 export function buildBashHeredocPayload (code: string): string {
@@ -613,6 +554,7 @@ export function writeTempBashScript (code: string): string {
 export function resolveBashTerminalPayload (
     code: string,
     shellKind: TerminalShellKind,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): TerminalRunPayload {
     if (shellKind === 'ssh') {
         return { mode: 'multiline', command: buildBashHeredocPayload(code) }
@@ -621,7 +563,7 @@ export function resolveBashTerminalPayload (
     const scriptPath = writeTempBashScript(code)
     return {
         mode: 'line',
-        command: buildBashTerminalCommand(scriptPath, shellKind),
+        command: buildBashTerminalCommand(scriptPath, shellKind, settings),
     }
 }
 
@@ -678,25 +620,28 @@ export function buildPowerShellHeredocPayload (code: string): string {
     return `pwsh -NoProfile -Command - <<'${delimiter}'\n${body}${delimiter}`
 }
 
-export function buildPythonTerminalCommand (scriptPath: string, shellKind: TerminalShellKind): string {
+export function buildPythonTerminalCommand (
+    scriptPath: string,
+    shellKind: TerminalShellKind,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
+): string {
     const quoted = quoteTerminalPath(scriptPath, shellKind)
-    if (shellKind === 'wsl' || shellKind === 'unix') {
-        return `python3 -u ${quoted}`
-    }
-    return `python -u ${quoted}`
+    return buildTerminalFileCommand('python', shellKind, quoted, settings.terminalFileCommands.python)
 }
 
-export function buildPowerShellTerminalCommand (scriptPath: string, shellKind: TerminalShellKind): string {
+export function buildPowerShellTerminalCommand (
+    scriptPath: string,
+    shellKind: TerminalShellKind,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
+): string {
     const quoted = quoteTerminalPath(scriptPath, shellKind)
-    if (shellKind === 'powershell') {
-        return `powershell -NoProfile -ExecutionPolicy Bypass -File ${quoted}`
-    }
-    return `pwsh -NoProfile -File ${quoted}`
+    return buildTerminalFileCommand('powershell', shellKind, quoted, settings.terminalFileCommands.powershell)
 }
 
 export function resolvePythonTerminalPayload (
     code: string,
     shellKind: TerminalShellKind,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): TerminalRunPayload {
     if (shellKind === 'ssh') {
         return { mode: 'multiline', command: buildPythonHeredocPayload(code) }
@@ -705,13 +650,14 @@ export function resolvePythonTerminalPayload (
     const scriptPath = writeTempPythonScript(code)
     return {
         mode: 'line',
-        command: buildPythonTerminalCommand(scriptPath, shellKind),
+        command: buildPythonTerminalCommand(scriptPath, shellKind, settings),
     }
 }
 
 export function resolvePowerShellTerminalPayload (
     code: string,
     shellKind: TerminalShellKind,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): TerminalRunPayload {
     if (shellKind === 'ssh') {
         return { mode: 'multiline', command: buildPowerShellHeredocPayload(code) }
@@ -720,7 +666,7 @@ export function resolvePowerShellTerminalPayload (
     const scriptPath = writeTempPowerShellScript(code)
     return {
         mode: 'line',
-        command: buildPowerShellTerminalCommand(scriptPath, shellKind),
+        command: buildPowerShellTerminalCommand(scriptPath, shellKind, settings),
     }
 }
 
@@ -728,90 +674,47 @@ export function resolveScriptTerminalPayload (
     language: ScriptLanguage,
     code: string,
     shellKind: TerminalShellKind,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): TerminalRunPayload {
     switch (language) {
         case 'bash':
-            return resolveBashTerminalPayload(code, shellKind)
+            return resolveBashTerminalPayload(code, shellKind, settings)
         case 'python':
-            return resolvePythonTerminalPayload(code, shellKind)
+            return resolvePythonTerminalPayload(code, shellKind, settings)
         case 'powershell':
-            return resolvePowerShellTerminalPayload(code, shellKind)
+            return resolvePowerShellTerminalPayload(code, shellKind, settings)
     }
 }
 
-function getPowerShellRunners (): ScriptRunner[] {
-    // `-Command -` reads the script from stdin and runs it on EOF.
-    const args = ['-NoProfile', '-NonInteractive', '-Command', '-']
-    const runners: ScriptRunner[] = []
-
-    if (process.platform === 'win32') {
-        if (commandExistsOnPath('pwsh')) {
-            runners.push({ command: 'pwsh', args })
-        }
-        runners.push({ command: 'powershell', args })
-        return runners
-    }
-
-    // PowerShell Core is the only variant available off Windows.
-    return [{ command: 'pwsh', args }]
+function buildTerminalFileCommand (
+    language: ScriptLanguage,
+    shellKind: TerminalShellKind,
+    quotedFile: string,
+    commands: CodeBlockTerminalFileCommands,
+): string {
+    const template = pickTerminalFileTemplate(commands, shellKind)
+    return template.replace(/\{file\}/g, quotedFile)
 }
 
-function resolveWindowsPythonRunners (): ScriptRunner[] {
-    const runners: ScriptRunner[] = []
-
-    if (commandExistsOnPath('py')) {
-        runners.push({ command: 'py', args: ['-3', '-u', '-'] })
-    }
-
-    const executables = new Set<string>()
-    for (const name of ['python', 'python3']) {
-        for (const exe of locateExecutablesOnWindows(name)) {
-            executables.add(exe)
-        }
-    }
-
-    for (const command of executables) {
-        runners.push({ command, args: ['-u', '-'] })
-    }
-
-    if (runners.length === 0) {
-        return [
-            { command: 'py', args: ['-3', '-u', '-'] },
-            { command: 'python', args: ['-u', '-'] },
-            { command: 'python3', args: ['-u', '-'] },
-        ]
-    }
-
-    return runners
-}
-
-function commandExistsOnPath (command: string): boolean {
-    try {
-        execSync(`where ${command}`, {
-            windowsHide: true,
-            stdio: 'pipe',
-            env: getSpawnEnvironment(),
-        })
-        return true
-    } catch {
-        return false
-    }
-}
-
-function locateExecutablesOnWindows (command: string): string[] {
-    try {
-        const output = execSync(`where ${command}`, {
-            encoding: 'utf8',
-            windowsHide: true,
-            stdio: ['pipe', 'pipe', 'pipe'],
-            env: getSpawnEnvironment(),
-        })
-        return output
-            .split(/\r?\n/)
-            .map(line => line.trim())
-            .filter(line => line && !WINDOWS_APPS_PYTHON_STUB.test(line))
-    } catch {
-        return []
+function pickTerminalFileTemplate (
+    commands: CodeBlockTerminalFileCommands,
+    shellKind: TerminalShellKind,
+): string {
+    switch (shellKind) {
+        case 'wsl':
+            return commands.wsl ?? commands.default
+        case 'unix':
+            return commands.unix ?? commands.wsl ?? commands.default
+        case 'msys':
+            return commands.msys ?? commands.default
+        case 'powershell':
+            return commands.powershell ?? commands.default
+        case 'unknown':
+            return commands.unknown ?? commands.default
+        case 'ssh':
+            return commands.ssh ?? commands.default
+        default:
+            return commands.default
     }
 }
 

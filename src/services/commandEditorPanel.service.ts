@@ -14,6 +14,7 @@ import {
     runCodeBlock,
     TerminalProfileHint,
 } from '../pythonCodeBlockRunner'
+import { CodeBlockRunSettings, resolveCodeBlockRunSettings } from '../codeBlockRunConfig'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
 
@@ -489,7 +490,7 @@ export class CommandEditorPanelService {
             return
         }
 
-        if (findRunnableCodeBlockAtCursor(state.editor)) {
+        if (findRunnableCodeBlockAtCursor(state.editor, this.getCodeBlockRunSettings())) {
             this.notifications.info('Send is disabled inside code blocks — use Loop or Run (F9)')
             return
         }
@@ -517,7 +518,7 @@ export class CommandEditorPanelService {
             return
         }
 
-        const block = findRunnableCodeBlockAtCursor(editor)
+        const block = findRunnableCodeBlockAtCursor(editor, this.getCodeBlockRunSettings())
         if (block) {
             await this.runCurrentPythonCodeBlock()
             return
@@ -578,9 +579,12 @@ export class CommandEditorPanelService {
             return
         }
 
-        const block = findRunnableCodeBlockAtCursor(state.editor)
+        const runSettings = this.getCodeBlockRunSettings()
+        const block = findRunnableCodeBlockAtCursor(state.editor, runSettings)
         if (!block) {
-            this.notifications.info('Place the cursor inside a ```python, ```bash, or ```powershell code block')
+            this.notifications.info(
+                `Place the cursor inside a runnable code block (${this.getRunnableLanguageFamilies().join(', ')})`,
+            )
             return
         }
         if (!block.code.trim()) {
@@ -620,6 +624,9 @@ export class CommandEditorPanelService {
                 sentCount++
             },
             line => this.showPythonLog(jobId, line),
+            undefined,
+            undefined,
+            runSettings,
         )
         this.pythonRunJobs.set(jobId, {
             id: jobId,
@@ -673,7 +680,8 @@ export class CommandEditorPanelService {
             return
         }
 
-        const scriptLanguage = resolveScriptLanguage(block.language)
+        const runSettings = this.getCodeBlockRunSettings()
+        const scriptLanguage = resolveScriptLanguage(block.language, runSettings)
         if (!scriptLanguage) {
             this.notifications.info(`Unsupported code block language: ${block.language}`)
             return
@@ -682,7 +690,7 @@ export class CommandEditorPanelService {
         const terminalLabel = this.getTerminalLabel(terminal)
         const tab = terminal as { profile?: TerminalProfileHint }
         const shellKind = detectTerminalShellKind(tab.profile, terminalLabel)
-        const payload = resolveScriptTerminalPayload(scriptLanguage, block.code, shellKind)
+        const payload = resolveScriptTerminalPayload(scriptLanguage, block.code, shellKind, runSettings)
         const languageLabel = this.getScriptLanguageLabel(block.language)
 
         try {
@@ -2760,6 +2768,14 @@ export class CommandEditorPanelService {
         }
         job.previewEl.scrollTop = job.previewEl.scrollHeight
         this.appendPythonLog(job, message)
+    }
+
+    private getCodeBlockRunSettings (): CodeBlockRunSettings {
+        return resolveCodeBlockRunSettings(this.config.store.commandEditor)
+    }
+
+    private getRunnableLanguageFamilies (): string[] {
+        return [...new Set(Object.values(this.getCodeBlockRunSettings().languageAliases))]
     }
 
     private getBlockRunMode (): BlockRunMode {

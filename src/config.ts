@@ -1,4 +1,24 @@
 import { ConfigProvider, Platform } from 'tabby-core'
+import {
+    DEFAULT_CODE_BLOCK_BACKGROUND_RUNNERS_UNIX,
+    DEFAULT_CODE_BLOCK_BACKGROUND_RUNNERS_WINDOWS,
+    DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES,
+    DEFAULT_CODE_BLOCK_TERMINAL_FILE_COMMANDS,
+} from './codeBlockRunConfig'
+
+const unixBackgroundRunnerRows = Object.fromEntries(
+    Object.entries(DEFAULT_CODE_BLOCK_BACKGROUND_RUNNERS_UNIX).map(([lang, runners]) => [
+        lang,
+        runners.map(runner => [runner.command, ...runner.args]),
+    ]),
+)
+
+const windowsBackgroundRunnerRows = Object.fromEntries(
+    Object.entries(DEFAULT_CODE_BLOCK_BACKGROUND_RUNNERS_WINDOWS).map(([lang, runners]) => [
+        lang,
+        runners.map(runner => [runner.command, ...runner.args]),
+    ]),
+)
 
 export class CommandEditorConfigProvider extends ConfigProvider {
     defaults = {
@@ -14,6 +34,18 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             sendLoopCount: 1,
             /** How code blocks (python/powershell/bash) are executed. */
             blockRunMode: 'background' as 'terminal' | 'background',
+            /** Markdown fence language tag → interpreter family (python/bash/powershell). */
+            codeBlockLanguageAliases: { ...DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES },
+            /**
+             * BG mode spawn commands, tried in order. Each entry is [executable, ...args];
+             * use "-" as the last arg to read script from stdin.
+             */
+            codeBlockBackgroundRunners: unixBackgroundRunnerRows,
+            /**
+             * TF mode command templates; `{file}` is replaced with the quoted temp script path.
+             * Keys under each language match terminal shell kinds (default, wsl, msys, …).
+             */
+            codeBlockTerminalFileCommands: { ...DEFAULT_CODE_BLOCK_TERMINAL_FILE_COMMANDS },
         },
         hotkeys: {
             'toggle-command-editor-panel': [],
@@ -57,6 +89,9 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             },
         },
         [Platform.Windows]: {
+            commandEditor: {
+                codeBlockBackgroundRunners: windowsBackgroundRunnerRows,
+            },
             hotkeys: {
                 'toggle-command-editor-panel': ['Ctrl-E'],
                 'find-in-command-editor': ['Ctrl-F'],

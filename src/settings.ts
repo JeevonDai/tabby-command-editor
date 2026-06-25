@@ -1,6 +1,7 @@
 import { Component, Injectable } from '@angular/core'
 import { ConfigService, LocaleService, TranslateService } from 'tabby-core'
 import { SettingsTabProvider } from 'tabby-settings'
+import { formatCodeBlockRunConfigForDisplay } from './codeBlockRunConfig'
 
 interface ShortcutRow {
     name: string
@@ -120,6 +121,17 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                     </div>
                 </div>
             </section>
+
+            <section>
+                <h3>{{ labels.codeBlockRun }}</h3>
+                <p class="text-muted">{{ labels.codeBlockRunDesc }}</p>
+                <ul class="command-editor-config-keys text-muted">
+                    <li>codeBlockLanguageAliases — {{ labels.codeBlockAliases }}</li>
+                    <li>codeBlockBackgroundRunners — {{ labels.codeBlockBg }}</li>
+                    <li>codeBlockTerminalFileCommands — {{ labels.codeBlockTf }}</li>
+                </ul>
+                <pre class="command-editor-config-json">{{ codeBlockRunConfigJson }}</pre>
+            </section>
         </div>
     `,
     styles: [`
@@ -195,6 +207,31 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
             color: var(--bs-secondary-color, #aaa);
         }
 
+        .command-editor-config-keys {
+            margin: 0 0 12px;
+            padding-left: 1.2rem;
+            font-size: 13px;
+        }
+
+        .command-editor-config-keys li {
+            margin-bottom: 4px;
+        }
+
+        .command-editor-config-json {
+            margin: 0;
+            padding: 12px;
+            max-height: 420px;
+            overflow: auto;
+            font-size: 12px;
+            line-height: 1.45;
+            font-family: monospace;
+            color: var(--bs-body-color, #ddd);
+            background: var(--bs-tertiary-bg, rgba(255, 255, 255, 0.04));
+            border: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.14));
+            border-radius: 4px;
+            white-space: pre;
+        }
+
         @media (max-width: 820px) {
             .command-editor-shortcut-row,
             .command-editor-shortcut-table.compact .command-editor-shortcut-row {
@@ -222,6 +259,11 @@ export class CommandEditorSettingsTabComponent {
             editorFocusKeysDesc: translate.instant('These keys are handled only while the command editor itself is focused.'),
             searchFocusKeys: translate.instant('Search focus keys'),
             searchFocusKeysDesc: translate.instant('These keys keep sending and running available while Monaco search is open.'),
+            codeBlockRun: translate.instant('Code block run commands'),
+            codeBlockRunDesc: translate.instant('Customize python/bash/powershell execution under commandEditor in config.yaml. Below is the effective merged configuration (defaults + your overrides).'),
+            codeBlockAliases: translate.instant('Markdown fence tag to interpreter family (python / bash / powershell)'),
+            codeBlockBg: translate.instant('BG mode: spawn commands tried in order; last arg "-" reads script from stdin'),
+            codeBlockTf: translate.instant('TF mode: shell command templates; {file} is replaced with the quoted temp script path'),
         }
         this.editorShortcuts = EDITOR_SHORTCUTS.map(shortcut => ({
             ...shortcut,
@@ -242,6 +284,10 @@ export class CommandEditorSettingsTabComponent {
             name: this.translate.instant(shortcut.name),
             keys: this.formatHotkeys(hotkeys?.[shortcut.id]),
         }))
+    }
+
+    get codeBlockRunConfigJson (): string {
+        return formatCodeBlockRunConfigForDisplay(this.config.store.commandEditor)
     }
 
     private formatHotkeys (value: string[] | string[][] | undefined): string {
