@@ -26,11 +26,7 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
         },
         {
             id: 'send-command-editor-lines',
-            name: this.translate.instant('Loop or run in command editor'),
-        },
-        {
-            id: 'cancel-command-editor-loop',
-            name: this.translate.instant('Stop command editor loop'),
+            name: this.translate.instant('Send or loop in command editor'),
         },
         {
             id: 'open-command-editor-outline',
@@ -46,7 +42,7 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
         },
         {
             id: 'toggle-command-editor-python-log',
-            name: this.translate.instant('Toggle Python log mode in command editor'),
+            name: this.translate.instant('Toggle code block run mode in command editor'),
         },
         {
             id: 'open-command-editor-python-log',

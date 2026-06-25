@@ -22,16 +22,19 @@ const GLOBAL_SHORTCUTS: Array<{ id: string; name: string }> = [
     { id: 'reload-command-editor-file', name: 'Reload file' },
     { id: 'open-command-editor-outline', name: 'Markdown outline' },
     { id: 'open-command-editor-symbol', name: 'Go to symbol' },
-    { id: 'send-command-editor-lines', name: 'Loop or run' },
+    { id: 'send-command-editor-lines', name: 'Send or loop' },
     { id: 'cancel-command-editor-loop', name: 'Stop loop' },
-    { id: 'run-command-editor-python', name: 'Loop or run (legacy)' },
-    { id: 'toggle-command-editor-python-log', name: 'Toggle Python log mode' },
+    { id: 'send-command-editor-panel', name: 'Send' },
+    { id: 'run-command-editor-python', name: 'Run code block (legacy)' },
+    { id: 'toggle-command-editor-python-log', name: 'Toggle block run mode' },
     { id: 'open-command-editor-python-log', name: 'Open Python log location' },
 ]
 
 const EDITOR_SHORTCUTS: ShortcutRow[] = [
-    { keys: 'Enter / F8', name: 'Send', detail: 'Send current line or selected text' },
-    { keys: 'F7', name: 'Loop or run', detail: 'Run code block at cursor, otherwise loop selected lines' },
+    { keys: 'Enter / F8', name: 'Send', detail: 'Send current line or selection (blocked inside code blocks)' },
+    { keys: 'F7', name: 'Go to next highlighted symbol', detail: 'Monaco built-in (plugin does not bind F7)' },
+    { keys: 'F9', name: 'Loop or Run', detail: 'Comments stripped; code block: run (terminal file or background per F10); line: send and move down (comment-only/blank: move only); selection: loop (interval × count)' },
+    { keys: 'F10', name: 'Block run mode', detail: 'Toggle: terminal temp file vs background (stdout→terminal, stderr→log)' },
     { keys: 'Shift+Enter', name: 'Save', detail: 'Save current document' },
     { keys: 'Alt+Enter', name: 'New line', detail: 'Insert a line without sending' },
     { keys: 'Ctrl+/', name: 'Line comment', detail: 'Toggle line comment' },
@@ -41,8 +44,9 @@ const EDITOR_SHORTCUTS: ShortcutRow[] = [
 ]
 
 const FIND_SHORTCUTS: ShortcutRow[] = [
-    { keys: 'F8 / Ctrl+Enter', name: 'Send', detail: 'Send current line while search is open' },
-    { keys: 'F7 / Ctrl+Shift+Enter', name: 'Loop or run', detail: 'Run code block at cursor, otherwise loop selected lines' },
+    { keys: 'F8 / Ctrl+Enter', name: 'Send', detail: 'Send current line while search is open (blocked inside code blocks)' },
+    { keys: 'F9 / Ctrl+Shift+Enter', name: 'Loop or Run', detail: 'Same as editor F9' },
+    { keys: 'F10', name: 'Block run mode', detail: 'Toggle: terminal temp file vs background (stdout→terminal, stderr→log)' },
 ]
 
 @Injectable()

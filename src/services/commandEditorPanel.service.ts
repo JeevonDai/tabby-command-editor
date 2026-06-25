@@ -9,8 +9,8 @@ import {
     CodeExecution,
     detectTerminalShellKind,
     findRunnableCodeBlockAtCursor,
-    resolveBashTerminalPayload,
     resolveScriptLanguage,
+    resolveScriptTerminalPayload,
     runCodeBlock,
     TerminalProfileHint,
 } from '../pythonCodeBlockRunner'
@@ -36,7 +36,7 @@ const LOOP_JOB_COLORS = [
 ] as const
 
 type PanelPosition = 'bottom' | 'right'
-type PythonLogMode = 'notification' | 'file'
+type BlockRunMode = 'terminal' | 'background'
 
 interface LoopSendJob {
     id: number
@@ -166,10 +166,10 @@ export class CommandEditorPanelService {
             return () => this.openOutlinePicker()
         }
         if (this.matchesConfiguredHotkey(event, 'run-command-editor-python')) {
-            return () => this.loopOrRun()
+            return () => this.runCurrentPythonCodeBlock()
         }
         if (this.matchesConfiguredHotkey(event, 'toggle-command-editor-python-log')) {
-            return () => this.togglePythonLogMode()
+            return () => this.toggleBlockRunMode()
         }
         if (this.matchesConfiguredHotkey(event, 'open-command-editor-python-log')) {
             return () => this.openPythonLogFolder()
@@ -194,16 +194,22 @@ export class CommandEditorPanelService {
         }
 
         if (findWidgetVisible) {
-            if (event.key === 'F7') {
+            if (event.key === 'F8') {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                this.sendFromPanel(undefined, true)
+                return
+            }
+            if (event.key === 'F9') {
                 event.preventDefault()
                 event.stopImmediatePropagation()
                 void this.loopOrRun()
                 return
             }
-            if (event.key === 'F8') {
+            if (event.key === 'F10') {
                 event.preventDefault()
                 event.stopImmediatePropagation()
-                this.sendFromPanel(undefined, true)
+                this.toggleBlockRunMode()
                 return
             }
         }
@@ -479,6 +485,11 @@ export class CommandEditorPanelService {
             return
         }
 
+        if (findRunnableCodeBlockAtCursor(state.editor)) {
+            this.notifications.info('Send is disabled inside code blocks — use Loop or Run (F9)')
+            return
+        }
+
         const text = stripComments(this.getTextToSend(state.editor, forceLine))
         if (!text.trim()) {
             this.notifications.info(this.translate.instant('Nothing to send'))
@@ -494,13 +505,52 @@ export class CommandEditorPanelService {
             return
         }
 
-        const block = findRunnableCodeBlockAtCursor(state.editor)
+        const editor = state.editor
+        const selection = editor.getSelection()
+        if (selection && !selection.isEmpty()) {
+            await this.sendLinesWithInterval(_terminal)
+            return
+        }
+
+        const block = findRunnableCodeBlockAtCursor(editor)
         if (block) {
             await this.runCurrentPythonCodeBlock()
             return
         }
 
-        await this.sendLinesWithInterval(_terminal)
+        const terminalTab = _terminal ?? this.resolveTerminalForSend()
+        if (!terminalTab) {
+            this.notifications.info(this.translate.instant('No active terminal'))
+            return
+        }
+
+        if (!terminalTab.session) {
+            this.notifications.error(this.translate.instant('Terminal session not ready'))
+            return
+        }
+
+        const position = editor.getPosition()
+        const model = editor.getModel()
+        if (!position || !model) {
+            return
+        }
+
+        const rawLine = model.getLineContent(position.lineNumber)
+        const lineText = stripComments(rawLine).trim()
+
+        if (lineText) {
+            try {
+                this.sendLineToTerminal(terminalTab, lineText)
+            } catch (error) {
+                console.error('[CommandEditorPanel] Line send failed:', error)
+                this.notifications.error(this.translate.instant('Loop send failed'))
+                return
+            }
+        }
+
+        if (position.lineNumber < model.getLineCount()) {
+            this.moveEditorToLine(editor, position.lineNumber + 1)
+        }
     }
 
     async runCurrentPythonCodeBlock (): Promise<void> {
@@ -523,8 +573,8 @@ export class CommandEditorPanelService {
             return
         }
 
-        if (resolveScriptLanguage(block.language) === 'bash') {
-            await this.runBashCodeBlockInTerminal(block.code, terminal, state)
+        if (this.getBlockRunMode() === 'terminal') {
+            await this.runScriptBlockInTerminal(block, terminal, state)
             return
         }
 
@@ -598,8 +648,8 @@ export class CommandEditorPanelService {
         }
     }
 
-    private async runBashCodeBlockInTerminal (
-        code: string,
+    private async runScriptBlockInTerminal (
+        block: { code: string; language: string },
         terminal: BaseTerminalTabComponent<any>,
         state: PanelState,
     ): Promise<void> {
@@ -608,10 +658,17 @@ export class CommandEditorPanelService {
             return
         }
 
+        const scriptLanguage = resolveScriptLanguage(block.language)
+        if (!scriptLanguage) {
+            this.notifications.info(`Unsupported code block language: ${block.language}`)
+            return
+        }
+
         const terminalLabel = this.getTerminalLabel(terminal)
         const tab = terminal as { profile?: TerminalProfileHint }
         const shellKind = detectTerminalShellKind(tab.profile, terminalLabel)
-        const payload = resolveBashTerminalPayload(code, shellKind)
+        const payload = resolveScriptTerminalPayload(scriptLanguage, block.code, shellKind)
+        const languageLabel = this.getScriptLanguageLabel(block.language)
 
         try {
             if (payload.mode === 'multiline') {
@@ -619,10 +676,12 @@ export class CommandEditorPanelService {
             } else {
                 this.sendLineToTerminal(terminal, payload.command)
             }
-            this.notifications.notice(`${terminalLabel}: bash script sent to terminal`)
+            this.notifications.notice(
+                `${terminalLabel}: ${languageLabel} script sent to terminal (${this.getBlockRunModeLabel()})`,
+            )
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to run bash script'
-            console.error('[CommandEditor] Bash terminal execution failed:', error)
+            const message = error instanceof Error ? error.message : 'Failed to run script in terminal'
+            console.error('[CommandEditor] Terminal script execution failed:', error)
             this.notifications.error(`${terminalLabel}: ${message}`)
         } finally {
             state.editor.focus()
@@ -897,7 +956,12 @@ export class CommandEditorPanelService {
             this.panel = null
         }
 
-        if (this.panel && 'runCodeBtn' in this.panel) {
+        if (this.panel && 'stepSendBtn' in this.panel) {
+            this.panel.root.remove()
+            this.panel = null
+        }
+
+        if (this.panel && 'autoSendBtn' in this.panel) {
             this.panel.root.remove()
             this.panel = null
         }
@@ -986,11 +1050,11 @@ export class CommandEditorPanelService {
 
         loopCountWrap.append(sendLoopCountInput, loopCountUnit)
 
-        const loopSendBtn = mkBtn('Loop Or Run')
-        loopSendBtn.title = 'F7 — run code block at cursor, otherwise loop selected lines'
+        const loopSendBtn = mkBtn('Loop or Run')
+        loopSendBtn.title = 'F9 — Loop or Run; comments stripped; code block: run; line: send and move down (blank/comment-only: move only); selection: loop (interval × count)'
 
         const sendBtn = mkBtn('Send', true)
-        sendBtn.title = 'Enter/F8'
+        sendBtn.title = 'Enter/F8 — comments stripped; line or selection; send immediately; code block: disabled (use Loop or Run / F9)'
 
         sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, sendBtn)
         toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendGroup)
@@ -1401,6 +1465,8 @@ export class CommandEditorPanelService {
 
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
+        editor.addCommand(monaco.KeyCode.F9, () => void this.loopOrRun(), editorContext)
+        editor.addCommand(monaco.KeyCode.F10, () => this.toggleBlockRunMode(), editorContext)
         editor.addCommand(
             monaco.KeyMod.Shift | monaco.KeyCode.Enter,
             () => this.saveFile(),
@@ -2371,6 +2437,19 @@ export class CommandEditorPanelService {
         return { root, label, preview }
     }
 
+    private moveEditorToLine (
+        editor: monaco.editor.IStandaloneCodeEditor,
+        lineNumber: number,
+    ): void {
+        const model = editor.getModel()
+        if (!model || lineNumber < 1 || lineNumber > model.getLineCount()) {
+            return
+        }
+
+        editor.setPosition({ lineNumber, column: 1 })
+        editor.revealLineInCenter(lineNumber)
+    }
+
     private getScriptLanguageLabel (language: string): string {
         switch (language.toLowerCase()) {
             case 'py':
@@ -2459,30 +2538,32 @@ export class CommandEditorPanelService {
             job.previewEl.firstElementChild?.remove()
         }
         job.previewEl.scrollTop = job.previewEl.scrollHeight
-        if (this.getPythonLogMode() === 'file') {
-            this.appendPythonLog(job, message)
-        } else {
-            this.notifications.info(`${job.terminalLabel}: ${message}`)
-        }
+        this.appendPythonLog(job, message)
     }
 
-    private getPythonLogMode (): PythonLogMode {
-        return this.config.store.commandEditor?.pythonLogMode === 'file'
-            ? 'file'
-            : 'notification'
+    private getBlockRunMode (): BlockRunMode {
+        return this.config.store.commandEditor?.blockRunMode === 'terminal'
+            ? 'terminal'
+            : 'background'
     }
 
-    togglePythonLogMode (): void {
-        const nextMode: PythonLogMode = this.getPythonLogMode() === 'notification'
-            ? 'file'
-            : 'notification'
+    private getBlockRunModeLabel (): string {
+        return this.getBlockRunMode() === 'terminal'
+            ? 'terminal file'
+            : 'background'
+    }
+
+    toggleBlockRunMode (): void {
+        const nextMode: BlockRunMode = this.getBlockRunMode() === 'terminal'
+            ? 'background'
+            : 'terminal'
         if (this.config.store.commandEditor) {
-            this.config.store.commandEditor.pythonLogMode = nextMode
+            this.config.store.commandEditor.blockRunMode = nextMode
             void this.config.save()
         }
-        this.notifications.notice(nextMode === 'file'
-            ? `Python logs will be written to ${this.getPythonLogDirectory()}`
-            : 'Python logs will be shown as notifications')
+        this.notifications.notice(nextMode === 'terminal'
+            ? 'Code blocks run as temp files in the active terminal'
+            : 'Code blocks run in background (stdout→terminal, stderr→log file)')
     }
 
     private appendPythonLog (job: PythonRunJob, message: string): void {

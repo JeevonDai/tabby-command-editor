@@ -38,6 +38,30 @@ export class CommandEditorConfigMigration {
             changed = true
         }
 
+        if (commandEditor && 'pythonLogMode' in commandEditor) {
+            if (!('blockRunMode' in commandEditor)) {
+                commandEditor.blockRunMode = 'background'
+            }
+            delete commandEditor.pythonLogMode
+            changed = true
+        }
+
+        if (hotkeys?.['send-command-editor-lines']?.includes('F7')
+            && !hotkeys['send-command-editor-lines']?.includes('F9')) {
+            hotkeys['send-command-editor-lines'] = ['F9']
+            changed = true
+        }
+
+        if (hotkeys?.['auto-send-command-editor']?.length) {
+            const legacyBindings = hotkeys['auto-send-command-editor']
+            delete hotkeys['auto-send-command-editor']
+            const sendLines = hotkeys['send-command-editor-lines']
+            if (legacyBindings?.length && (!sendLines || sendLines.length === 0)) {
+                hotkeys['send-command-editor-lines'] = legacyBindings
+            }
+            changed = true
+        }
+
         if (changed) {
             void this.config.save()
         }

@@ -4,14 +4,17 @@
 
 | 快捷键 | 功能 | 备注 |
 |---|---|---|
-| `Enter` | **Send** — 发送当前行（或选中内容）到终端 | 自动去除注释 |
+| `Enter` | **Send** — 发送当前行（或选中内容）到终端 | 自动去除注释；**代码块内会跳过并提示** |
 | `F8` | **Send** — 同上 | |
-| `Shift + Enter` | **Save** — 保存文档 | 与全局 `Ctrl+S` 等效；首次保存会弹出另存为对话框 |
+| `F7` | **跳转到下一个高亮符号** | Monaco 原生 |
+| `F9` | **Loop or Run** — 代码块内运行整块；无选中时发送当前行并下移；有选中时循环发送 | 见第四节 |
+| `F10` | **Block Run Mode** — 切换代码块运行方式 | 终端临时文件 / 后台运行 |
+| `Shift + Enter` | **Save** — 保存文档 | 与全局 `Ctrl+S` 等效 |
 | `Alt + Enter` | **换行** — 插入新行 | 若光标在 `<!-- -->` 注释内，自动拆分为多行块注释 |
-| `Ctrl + /` | **行注释** — 切换当前行注释 | Monaco 原生 `editor.action.commentLine` |
+| `Ctrl + /` | **行注释** — 切换当前行注释 | Monaco 原生 |
 | `Ctrl + Shift + /` | **Markdown 块注释** — 切换 `<!-- -->` 包围 | |
-| `Ctrl + \` | **折叠/展开** — 切换代码折叠 | Monaco 原生 `editor.toggleFold` |
-| `Shift + Alt + A` | **块注释** — 切换块注释 | Monaco 原生 `editor.action.blockComment` |
+| `Ctrl + \` | **折叠/展开** — 切换代码折叠 | Monaco 原生 |
+| `Shift + Alt + A` | **块注释** — 切换块注释 | Monaco 原生 |
 | `Ctrl + G` | **跳转到行** | Monaco 原生 |
 | `Ctrl + Shift + O` | **跳转到符号** | Monaco 原生 Go to Symbol |
 | `F1` | 禁用（不弹出命令面板） | |
@@ -25,10 +28,11 @@
 |---|---|---|
 | `Enter` | **搜索下一个** | Monaco 原生 find widget 行为 |
 | `Shift + Enter` | **搜索上一个** | Monaco 原生 find widget 行为 |
-| `Ctrl + Enter` | **Send** — 发送当前行/选中内容到终端 | 搜索框打开时也能直接发送，无需关闭搜索框 |
-| `Ctrl + Shift + Enter` | **Loop or Run** — 若光标在 \`\`\`python / \`\`\`powershell / \`\`\`bash 代码块中则运行代码块，否则按 Loop 配置循环发送 | 搜索框打开时也能使用 |
-| `F7` | **Loop or Run** — 同上 | 搜索框打开时也能使用 |
-| `F8` | **Send** — 发送当前行/选中内容到终端 | 搜索框打开时也能直接发送 |
+| `Ctrl + Enter` | **Send** — 发送当前行/选中内容 | 代码块内会跳过并提示 |
+| `Ctrl + Shift + Enter` | **Loop or Run** | 同 F9 |
+| `F8` | **Send** | 同编辑器内 |
+| `F9` | **Loop or Run** | 同编辑器内 |
+| `F10` | **Block Run Mode** | 同编辑器内 |
 
 ---
 
@@ -36,14 +40,15 @@
 
 | 快捷键 | 功能 | 对应的 Hotkey ID |
 |---|---|---|
-| `Ctrl + E` | 切换命令编辑器面板（打开/关闭） | `toggle-command-editor-panel` |
-| `Ctrl + F` | 打开编辑器内搜索（Find） | `find-in-command-editor` |
-| `Ctrl + O` | 打开文件到编辑器 | `open-command-editor-file` |
-| `Ctrl + S` | 保存编辑器文档 | `save-command-editor-file` |
+| `Ctrl + E` | 切换命令编辑器面板 | `toggle-command-editor-panel` |
+| `Ctrl + F` | 打开编辑器内搜索 | `find-in-command-editor` |
+| `Ctrl + O` | 打开文件 | `open-command-editor-file` |
+| `Ctrl + S` | 保存文档 | `save-command-editor-file` |
 | `Ctrl + Q` | 打开 Markdown 大纲 | `open-command-editor-outline` |
 | `F5` | 重新加载文件 | `reload-command-editor-file` |
-| `F7` | **Loop or Run** — 在代码块中运行脚本，否则循环发送选中的行 | `send-command-editor-lines` |
-| `F10` | 切换 Python 日志模式（通知 / 文件） | `toggle-command-editor-python-log` |
+| `F8` | **Send** | `send-command-editor-panel` |
+| `F9` | **Loop or Run** | `send-command-editor-lines` |
+| `F10` | **Block Run Mode** — 终端文件 / 后台运行 | `toggle-command-editor-python-log` |
 | `Alt + Shift + Enter` | 跳转到符号 | `open-command-editor-symbol` |
 | `Alt + Shift + G` | 打开 Python 日志文件夹 | `open-command-editor-python-log` |
 
@@ -51,16 +56,20 @@
 
 ---
 
-## 四、编辑器内 Ctrl 组合键（剪切板操作）
+## 四、Send 与 Loop or Run 区别
 
-当编辑器或 Monaco 浮层输入框（搜索框等）聚焦时，以下快捷键在捕获阶段被拦截处理：
-
-| 快捷键 | 功能 |
+| 模式 | 行为 |
 |---|---|
-| `Ctrl + C` | 复制 |
-| `Ctrl + V` | 粘贴 |
-| `Ctrl + X` | 剪切 |
-| `Ctrl + A` | 全选 |
+| **Send (Enter / F8)** | 发送当前行或选中内容；去除注释；**代码块内禁止** |
+| **Loop or Run (F9)** | 见下表 |
+| **Block Run Mode (F10)** | 切换 python/powershell/bash 代码块运行方式（见下表） |
+
+### F10 代码块运行模式
+
+| 模式 | 行为 |
+|---|---|
+| **终端文件 (terminal)** | 将代码块写入临时文件，在**当前终端**发送命令执行 |
+| **后台 (background)** | 插件后台 `spawn` 运行；**stdout** 逐行发送到终端；**stderr** 写入日志文件（任务栏预览） |
 
 ---
 
@@ -71,15 +80,15 @@
 | Open | 打开文件 | `Ctrl + O` |
 | Save | 保存文件 | `Ctrl + S` / `Shift + Enter` |
 | Close | 关闭面板 | `Ctrl + E` |
+| **Loop or Run** | 代码块内运行整块；无选中发当前行并下移；有选中则循环发送 | `F9` |
 | **Send** | 发送当前行/选中内容 | `Enter` / `F8` |
-| **Loop Or Run** | 在代码块中运行脚本，否则按间隔/次数循环发送 | `F7` |
 
 ---
 
-## 六、Loop 模式操作
+## 六、批量发送操作
 
 | 操作 | 说明 |
 |---|---|
-| 鼠标滚轮滚动 Loop 按钮 | 微调发送间隔（步长 10ms） |
-| 点击 Loop 按钮旁的数字输入框 | 手动设置间隔（秒）和循环次数 |
-| 点击作业状态条上的 × | 取消对应的 Loop 作业 |
+| 鼠标滚轮滚动间隔输入框 | 微调发送间隔（步长 10ms） |
+| 间隔 / 次数输入框 | 设置 Loop 的间隔（秒）和重复次数 |
+| 点击作业状态条上的 × | 取消对应的 Loop 或后台脚本作业 |

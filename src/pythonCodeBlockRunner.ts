@@ -613,7 +613,7 @@ export function writeTempBashScript (code: string): string {
 export function resolveBashTerminalPayload (
     code: string,
     shellKind: TerminalShellKind,
-): { mode: 'line', command: string } | { mode: 'multiline', command: string } {
+): TerminalRunPayload {
     if (shellKind === 'ssh') {
         return { mode: 'multiline', command: buildBashHeredocPayload(code) }
     }
@@ -622,6 +622,120 @@ export function resolveBashTerminalPayload (
     return {
         mode: 'line',
         command: buildBashTerminalCommand(scriptPath, shellKind),
+    }
+}
+
+export type TerminalRunPayload = { mode: 'line', command: string } | { mode: 'multiline', command: string }
+
+function quoteTerminalPath (scriptPath: string, shellKind: TerminalShellKind): string {
+    if (process.platform === 'win32' && (shellKind === 'wsl' || shellKind === 'unix')) {
+        return shellQuoteSingle(windowsPathToWslPath(scriptPath))
+    }
+    if (process.platform === 'win32' && shellKind === 'msys') {
+        return shellQuoteSingle(windowsPathToMsysPath(scriptPath))
+    }
+    return shellQuoteSingle(scriptPath)
+}
+
+export function writeTempPythonScript (code: string): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs') as typeof import('fs')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const os = require('os') as typeof import('os')
+    const scriptPath = path.join(os.tmpdir(), `tabby-cmd-editor-${Date.now()}.py`)
+    const normalized = code.endsWith('\n') ? code : `${code}\n`
+    fs.writeFileSync(scriptPath, normalized, 'utf8')
+    return scriptPath
+}
+
+export function writeTempPowerShellScript (code: string): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs') as typeof import('fs')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const os = require('os') as typeof import('os')
+    const scriptPath = path.join(os.tmpdir(), `tabby-cmd-editor-${Date.now()}.ps1`)
+    const normalized = code.replace(/\r\n?/g, '\n')
+    fs.writeFileSync(scriptPath, normalized.endsWith('\n') ? normalized : `${normalized}\n`, 'utf8')
+    return scriptPath
+}
+
+export function buildPythonHeredocPayload (code: string): string {
+    const normalized = code.endsWith('\n') ? code : `${code}\n`
+    let delimiter = 'TABBY_PYTHON_EOF'
+    while (normalized.includes(delimiter)) {
+        delimiter += '_'
+    }
+    return `python3 -u <<'${delimiter}'\n${normalized}${delimiter}`
+}
+
+export function buildPowerShellHeredocPayload (code: string): string {
+    const normalized = code.replace(/\r\n?/g, '\n')
+    const body = normalized.endsWith('\n') ? normalized : `${normalized}\n`
+    let delimiter = 'TABBY_PWSH_EOF'
+    while (body.includes(delimiter)) {
+        delimiter += '_'
+    }
+    return `pwsh -NoProfile -Command - <<'${delimiter}'\n${body}${delimiter}`
+}
+
+export function buildPythonTerminalCommand (scriptPath: string, shellKind: TerminalShellKind): string {
+    const quoted = quoteTerminalPath(scriptPath, shellKind)
+    if (shellKind === 'wsl' || shellKind === 'unix') {
+        return `python3 -u ${quoted}`
+    }
+    return `python -u ${quoted}`
+}
+
+export function buildPowerShellTerminalCommand (scriptPath: string, shellKind: TerminalShellKind): string {
+    const quoted = quoteTerminalPath(scriptPath, shellKind)
+    if (shellKind === 'powershell') {
+        return `powershell -NoProfile -ExecutionPolicy Bypass -File ${quoted}`
+    }
+    return `pwsh -NoProfile -File ${quoted}`
+}
+
+export function resolvePythonTerminalPayload (
+    code: string,
+    shellKind: TerminalShellKind,
+): TerminalRunPayload {
+    if (shellKind === 'ssh') {
+        return { mode: 'multiline', command: buildPythonHeredocPayload(code) }
+    }
+
+    const scriptPath = writeTempPythonScript(code)
+    return {
+        mode: 'line',
+        command: buildPythonTerminalCommand(scriptPath, shellKind),
+    }
+}
+
+export function resolvePowerShellTerminalPayload (
+    code: string,
+    shellKind: TerminalShellKind,
+): TerminalRunPayload {
+    if (shellKind === 'ssh') {
+        return { mode: 'multiline', command: buildPowerShellHeredocPayload(code) }
+    }
+
+    const scriptPath = writeTempPowerShellScript(code)
+    return {
+        mode: 'line',
+        command: buildPowerShellTerminalCommand(scriptPath, shellKind),
+    }
+}
+
+export function resolveScriptTerminalPayload (
+    language: ScriptLanguage,
+    code: string,
+    shellKind: TerminalShellKind,
+): TerminalRunPayload {
+    switch (language) {
+        case 'bash':
+            return resolveBashTerminalPayload(code, shellKind)
+        case 'python':
+            return resolvePythonTerminalPayload(code, shellKind)
+        case 'powershell':
+            return resolvePowerShellTerminalPayload(code, shellKind)
     }
 }
 
