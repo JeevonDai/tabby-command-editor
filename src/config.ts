@@ -8,6 +8,8 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             lastOpenedFile: null as string | null,
             /** Seconds to wait after each line when batch-sending (e.g. 0.05 = 50ms). */
             sendLineIntervalSec: 1,
+            /** Display unit for the send-line interval control. */
+            sendLineIntervalUnit: 's' as 'min' | 's' | 'ms',
             /** How many times to repeat the selected lines in loop send. */
             sendLoopCount: 1,
             /** How code blocks (python/powershell/bash) are executed. */

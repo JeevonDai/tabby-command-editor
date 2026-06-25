@@ -25,7 +25,9 @@ const TAB_CONTENT_SELECTOR = 'app-root > .content > .content'
 const PANEL_SIZE_VAR = '--tabby-command-editor-panel-size'
 const CONTENT_TAB_SELECTOR = 'app-root .content > .content > .content-tab.content-tab-active, app-root > .content > .content > .content-tab.content-tab-active'
 const PLUGIN_BUILD_ID = '20260530-loop6'
-const SEND_INTERVAL_STEP_SEC = 0.01
+
+type SendLineIntervalUnit = 'min' | 's' | 'ms'
+const SEND_LINE_INTERVAL_UNITS: SendLineIntervalUnit[] = ['min', 's', 'ms']
 const LOOP_JOB_COLORS = [
     { border: '#4da3ff', bg: 'rgba(77, 163, 255, 0.14)', accent: '#4da3ff' },
     { border: '#4ec9b0', bg: 'rgba(78, 201, 176, 0.14)', accent: '#4ec9b0' },
@@ -70,6 +72,7 @@ interface PanelState {
     editor: monaco.editor.IStandaloneCodeEditor
     fileLabel: HTMLElement
     sendIntervalInput: HTMLInputElement
+    sendIntervalUnitSelect: HTMLSelectElement
     sendLoopCountInput: HTMLInputElement
     loopSendBtn: HTMLButtonElement
     batchStatusContainer: HTMLElement
@@ -966,6 +969,12 @@ export class CommandEditorPanelService {
             this.panel = null
         }
 
+        if (this.panel && (!('sendIntervalUnitSelect' in (this.panel as object))
+            || 'sendIntervalUnitRadios' in (this.panel as object))) {
+            this.panel.root.remove()
+            this.panel = null
+        }
+
         if (this.panel) {
             return this.panel
         }
@@ -1018,20 +1027,37 @@ export class CommandEditorPanelService {
 
         const intervalWrap = document.createElement('label')
         intervalWrap.className = 'command-editor-panel-interval'
-        intervalWrap.title = 'Scroll to adjust interval (10ms step)'
+        intervalWrap.title = 'Scroll to adjust; step: min ±1, s ±0.1, ms ±10'
 
+        const intervalUnit = this.getSendLineIntervalUnit()
         const sendIntervalInput = document.createElement('input')
         sendIntervalInput.type = 'number'
         sendIntervalInput.className = 'command-editor-panel-interval-input form-control form-control-sm'
         sendIntervalInput.min = '0'
-        sendIntervalInput.step = String(SEND_INTERVAL_STEP_SEC)
-        sendIntervalInput.value = this.formatIntervalSecForInput(this.getSendLineIntervalSec())
+        this.applyIntervalInputStep(sendIntervalInput, intervalUnit)
+        sendIntervalInput.value = this.formatIntervalDisplayValue(
+            this.secToIntervalDisplay(this.getSendLineIntervalSec(), intervalUnit),
+            intervalUnit,
+        )
 
-        const intervalUnit = document.createElement('span')
-        intervalUnit.className = 'command-editor-panel-interval-unit'
-        intervalUnit.textContent = 's'
+        const sendIntervalUnitSelect = document.createElement('select')
+        sendIntervalUnitSelect.className = 'command-editor-panel-interval-unit-select form-select form-select-sm'
+        sendIntervalUnitSelect.title = 'Interval unit'
+        for (const unit of SEND_LINE_INTERVAL_UNITS) {
+            const option = document.createElement('option')
+            option.value = unit
+            option.textContent = unit
+            sendIntervalUnitSelect.append(option)
+        }
+        sendIntervalUnitSelect.value = intervalUnit
+        sendIntervalUnitSelect.addEventListener('change', () => {
+            const unit = sendIntervalUnitSelect.value as SendLineIntervalUnit
+            if (SEND_LINE_INTERVAL_UNITS.includes(unit)) {
+                this.setSendIntervalUnit(unit)
+            }
+        })
 
-        intervalWrap.append(sendIntervalInput, intervalUnit)
+        intervalWrap.append(sendIntervalInput, sendIntervalUnitSelect)
 
         const loopCountWrap = document.createElement('label')
         loopCountWrap.className = 'command-editor-panel-interval'
@@ -1101,10 +1127,16 @@ export class CommandEditorPanelService {
             this.savedEditorSelection = editor.getSelection()
         })
         loopSendBtn.addEventListener('click', () => void this.loopOrRun())
-        sendIntervalInput.addEventListener('change', () => this.persistSendIntervalInput(sendIntervalInput))
+        sendIntervalInput.addEventListener('change', () => {
+            if (this.panel) {
+                this.persistSendIntervalInput(this.panel)
+            }
+        })
         sendIntervalInput.addEventListener('wheel', (event: WheelEvent) => {
             event.preventDefault()
-            this.adjustIntervalInput(sendIntervalInput, event.deltaY < 0 ? SEND_INTERVAL_STEP_SEC : -SEND_INTERVAL_STEP_SEC)
+            if (this.panel) {
+                this.adjustIntervalInput(this.panel, event.deltaY < 0)
+            }
         }, { passive: false })
         sendLoopCountInput.addEventListener('change', () => this.persistSendLoopCountInput(sendLoopCountInput))
 
@@ -1128,6 +1160,7 @@ export class CommandEditorPanelService {
             editor,
             fileLabel,
             sendIntervalInput,
+            sendIntervalUnitSelect,
             sendLoopCountInput,
             loopSendBtn,
             batchStatusContainer,
@@ -1858,6 +1891,23 @@ export class CommandEditorPanelService {
                 margin: 0;
             }
 
+            #${BAR_ID} .command-editor-panel-interval-unit-select {
+                width: auto;
+                min-width: 42px;
+                padding: 1px 18px 1px 4px;
+                font-size: 11px;
+                font-family: monospace;
+                line-height: 1.2;
+                color: var(--bs-body-color, #adb5bd);
+                background-color: var(--bs-tertiary-bg, rgba(255, 255, 255, 0.06));
+                border-color: var(--bs-border-color, rgba(255, 255, 255, 0.15));
+            }
+
+            #${BAR_ID} .command-editor-panel-interval-unit-select:focus {
+                color: var(--bs-body-color, #dee2e6);
+                background-color: var(--bs-body-bg, rgba(0, 0, 0, 0.25));
+            }
+
             #${BAR_ID} .command-editor-panel-interval-unit {
                 font-size: 11px;
                 color: var(--bs-secondary-color, #aaa);
@@ -2262,16 +2312,102 @@ export class CommandEditorPanelService {
         ))
     }
 
-    private formatIntervalSecForInput (sec: number): string {
-        const rounded = Math.round(Math.max(0, sec) * 100) / 100
-        return String(parseFloat(rounded.toFixed(2)))
+    private getSendLineIntervalUnit (): SendLineIntervalUnit {
+        const unit = this.config.store.commandEditor?.sendLineIntervalUnit
+        return unit === 'min' || unit === 'ms' ? unit : 's'
     }
 
-    private adjustIntervalInput (input: HTMLInputElement, deltaSec: number): void {
-        const current = this.parseIntervalInput(input.value) ?? this.getSendLineIntervalSec()
-        const next = Math.max(0, Math.round((current + deltaSec) * 100) / 100)
-        input.value = this.formatIntervalSecForInput(next)
-        this.persistSendIntervalInput(input)
+    private getIntervalWheelStep (unit: SendLineIntervalUnit): number {
+        switch (unit) {
+            case 'min':
+                return 1
+            case 'ms':
+                return 10
+            default:
+                return 0.1
+        }
+    }
+
+    private applyIntervalInputStep (input: HTMLInputElement, unit: SendLineIntervalUnit): void {
+        input.step = String(this.getIntervalWheelStep(unit))
+    }
+
+    private snapIntervalDisplayValue (value: number, unit: SendLineIntervalUnit): number {
+        switch (unit) {
+            case 'min':
+                return Math.round(value)
+            case 'ms':
+                return Math.round(value)
+            default:
+                return Math.round(value * 10) / 10
+        }
+    }
+
+    private secToIntervalDisplay (sec: number, unit: SendLineIntervalUnit): number {
+        const safeSec = Math.max(0, sec)
+        switch (unit) {
+            case 'min':
+                return safeSec / 60
+            case 'ms':
+                return safeSec * 1000
+            default:
+                return safeSec
+        }
+    }
+
+    private intervalDisplayToSec (value: number, unit: SendLineIntervalUnit): number {
+        const snapped = this.snapIntervalDisplayValue(value, unit)
+        switch (unit) {
+            case 'min':
+                return snapped * 60
+            case 'ms':
+                return snapped / 1000
+            default:
+                return snapped
+        }
+    }
+
+    private formatIntervalDisplayValue (value: number, unit: SendLineIntervalUnit): string {
+        const snapped = this.snapIntervalDisplayValue(value, unit)
+        switch (unit) {
+            case 'min':
+            case 'ms':
+                return String(snapped)
+            default:
+                return String(parseFloat(snapped.toFixed(1)))
+        }
+    }
+
+    private setSendIntervalUnit (unit: SendLineIntervalUnit): void {
+        const state = this.panel
+        if (!state) {
+            return
+        }
+
+        const sec = this.readSendIntervalSec(state)
+        if (!this.config.store.commandEditor) {
+            return
+        }
+
+        this.config.store.commandEditor.sendLineIntervalUnit = unit
+        this.config.store.commandEditor.sendLineIntervalSec = sec
+        this.applyIntervalInputStep(state.sendIntervalInput, unit)
+        state.sendIntervalUnitSelect.value = unit
+        state.sendIntervalInput.value = this.formatIntervalDisplayValue(
+            this.secToIntervalDisplay(sec, unit),
+            unit,
+        )
+        void this.config.save()
+    }
+
+    private adjustIntervalInput (state: PanelState, increase: boolean): void {
+        const unit = this.getSendLineIntervalUnit()
+        const step = this.getIntervalWheelStep(unit)
+        const parsed = this.parseIntervalInput(state.sendIntervalInput.value)
+        const current = parsed ?? this.secToIntervalDisplay(this.getSendLineIntervalSec(), unit)
+        const next = Math.max(0, current + (increase ? step : -step))
+        state.sendIntervalInput.value = this.formatIntervalDisplayValue(next, unit)
+        this.persistSendIntervalInput(state)
     }
 
     private matchesConfiguredHotkey (event: KeyboardEvent, hotkeyId: string): boolean {
@@ -2353,28 +2489,37 @@ export class CommandEditorPanelService {
     }
 
     private readSendIntervalSec (state: PanelState): number {
+        const unit = this.getSendLineIntervalUnit()
         const parsed = this.parseIntervalInput(state.sendIntervalInput.value)
         if (parsed !== null) {
-            return parsed
+            return this.intervalDisplayToSec(parsed, unit)
         }
 
         return this.getSendLineIntervalSec()
     }
 
-    private persistSendIntervalInput (input: HTMLInputElement): void {
-        const parsed = this.parseIntervalInput(input.value)
+    private persistSendIntervalInput (state: PanelState): void {
+        const unit = this.getSendLineIntervalUnit()
+        const parsed = this.parseIntervalInput(state.sendIntervalInput.value)
         if (parsed === null) {
-            input.value = this.formatIntervalSecForInput(this.getSendLineIntervalSec())
+            state.sendIntervalInput.value = this.formatIntervalDisplayValue(
+                this.secToIntervalDisplay(this.getSendLineIntervalSec(), unit),
+                unit,
+            )
             return
         }
 
-        input.value = this.formatIntervalSecForInput(parsed)
+        const sec = this.intervalDisplayToSec(parsed, unit)
+        state.sendIntervalInput.value = this.formatIntervalDisplayValue(
+            this.secToIntervalDisplay(sec, unit),
+            unit,
+        )
         if (!this.config.store.commandEditor) {
             return
         }
 
-        this.config.store.commandEditor.sendLineIntervalSec = parsed
-        this.config.save()
+        this.config.store.commandEditor.sendLineIntervalSec = sec
+        void this.config.save()
     }
 
     private getTerminalLabel (terminal: BaseTerminalTabComponent<any>): string {
@@ -2719,11 +2864,12 @@ export class CommandEditorPanelService {
     }
 
     private getSendLineIntervalSec (): number {
-        const value = this.config.store.commandEditor?.sendLineIntervalSec
-        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-            return value
+        let sec = this.config.store.commandEditor?.sendLineIntervalSec
+        if (typeof sec !== 'number' || !Number.isFinite(sec) || sec < 0) {
+            sec = 1
         }
-        return 1
+        const unit = this.getSendLineIntervalUnit()
+        return this.intervalDisplayToSec(this.secToIntervalDisplay(sec, unit), unit)
     }
 
     private sendLineToTerminal (terminal: BaseTerminalTabComponent<any>, line: string): void {
