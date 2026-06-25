@@ -158,6 +158,7 @@ export default () => {
             /^@ng-bootstrap/,
             /^rxjs/,
             /^tabby-/,
+            '@ngx-translate/core',
         ],
         plugins: [
             new devtoolPlugin(sourceMapOptions),

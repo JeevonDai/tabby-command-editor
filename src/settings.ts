@@ -1,5 +1,5 @@
 import { Component, Injectable } from '@angular/core'
-import { ConfigService, TranslateService } from 'tabby-core'
+import { ConfigService, LocaleService, TranslateService } from 'tabby-core'
 import { SettingsTabProvider } from 'tabby-settings'
 
 interface ShortcutRow {
@@ -25,8 +25,6 @@ const GLOBAL_SHORTCUTS: Array<{ id: string; name: string }> = [
     { id: 'send-command-editor-lines', name: 'Send or loop' },
     { id: 'cancel-command-editor-loop', name: 'Stop loop' },
     { id: 'send-command-editor-panel', name: 'Send' },
-    { id: 'run-command-editor-python', name: 'Run code block (legacy)' },
-    { id: 'toggle-command-editor-python-log', name: 'Toggle block run mode' },
     { id: 'open-command-editor-python-log', name: 'Open Python log location' },
 ]
 
@@ -59,9 +57,17 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
     weight = 10
     prioritized = false
 
-    constructor (translate: TranslateService) {
+    constructor (
+        private translate: TranslateService,
+        locale: LocaleService,
+    ) {
         super()
-        this.title = translate.instant('Command editor')
+        this.refreshTitle()
+        locale.localeChanged$.subscribe(() => this.refreshTitle())
+    }
+
+    private refreshTitle (): void {
+        this.title = this.translate.instant('Command editor')
     }
 
     getComponentType (): any {
@@ -74,18 +80,16 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
     template: `
         <div class="command-editor-settings">
             <section>
-                <h3>{{ 'Global hotkeys' | translate }}</h3>
-                <p class="text-muted">
-                    {{ 'These are Tabby-level hotkeys registered by the command editor. Edit their bindings in Settings -> Hotkeys.' | translate }}
-                </p>
+                <h3>{{ labels.globalHotkeys }}</h3>
+                <p class="text-muted">{{ labels.globalHotkeysDesc }}</p>
                 <div class="command-editor-shortcut-table">
                     <div class="command-editor-shortcut-row header">
-                        <span>{{ 'Action' | translate }}</span>
-                        <span>{{ 'Current binding' | translate }}</span>
+                        <span>{{ labels.action }}</span>
+                        <span>{{ labels.currentBinding }}</span>
                         <span>Hotkey ID</span>
                     </div>
                     <div class="command-editor-shortcut-row" *ngFor="let shortcut of globalShortcuts">
-                        <span>{{ shortcut.name | translate }}</span>
+                        <span>{{ shortcut.name }}</span>
                         <span><kbd>{{ shortcut.keys }}</kbd></span>
                         <code>{{ shortcut.id }}</code>
                     </div>
@@ -93,29 +97,25 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
             </section>
 
             <section>
-                <h3>{{ 'Editor focus keys' | translate }}</h3>
-                <p class="text-muted">
-                    {{ 'These keys are handled only while the command editor itself is focused.' | translate }}
-                </p>
+                <h3>{{ labels.editorFocusKeys }}</h3>
+                <p class="text-muted">{{ labels.editorFocusKeysDesc }}</p>
                 <div class="command-editor-shortcut-table compact">
                     <div class="command-editor-shortcut-row" *ngFor="let shortcut of editorShortcuts">
                         <span><kbd>{{ shortcut.keys }}</kbd></span>
-                        <strong>{{ shortcut.name | translate }}</strong>
-                        <span class="text-muted">{{ shortcut.detail | translate }}</span>
+                        <strong>{{ shortcut.name }}</strong>
+                        <span class="text-muted">{{ shortcut.detail }}</span>
                     </div>
                 </div>
             </section>
 
             <section>
-                <h3>{{ 'Search focus keys' | translate }}</h3>
-                <p class="text-muted">
-                    {{ 'These keys keep sending and running available while Monaco search is open.' | translate }}
-                </p>
+                <h3>{{ labels.searchFocusKeys }}</h3>
+                <p class="text-muted">{{ labels.searchFocusKeysDesc }}</p>
                 <div class="command-editor-shortcut-table compact">
                     <div class="command-editor-shortcut-row" *ngFor="let shortcut of findShortcuts">
                         <span><kbd>{{ shortcut.keys }}</kbd></span>
-                        <strong>{{ shortcut.name | translate }}</strong>
-                        <span class="text-muted">{{ shortcut.detail | translate }}</span>
+                        <strong>{{ shortcut.name }}</strong>
+                        <span class="text-muted">{{ shortcut.detail }}</span>
                     </div>
                 </div>
             </section>
@@ -204,15 +204,41 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
     `],
 })
 export class CommandEditorSettingsTabComponent {
-    editorShortcuts = EDITOR_SHORTCUTS
-    findShortcuts = FIND_SHORTCUTS
+    readonly labels: Record<string, string>
+    readonly editorShortcuts: ShortcutRow[]
+    readonly findShortcuts: ShortcutRow[]
 
-    constructor (private config: ConfigService) {}
+    constructor (
+        private config: ConfigService,
+        private translate: TranslateService,
+    ) {
+        this.labels = {
+            globalHotkeys: translate.instant('Global hotkeys'),
+            globalHotkeysDesc: translate.instant('These are Tabby-level hotkeys registered by the command editor. Edit their bindings in Settings -> Hotkeys.'),
+            action: translate.instant('Action'),
+            currentBinding: translate.instant('Current binding'),
+            editorFocusKeys: translate.instant('Editor focus keys'),
+            editorFocusKeysDesc: translate.instant('These keys are handled only while the command editor itself is focused.'),
+            searchFocusKeys: translate.instant('Search focus keys'),
+            searchFocusKeysDesc: translate.instant('These keys keep sending and running available while Monaco search is open.'),
+        }
+        this.editorShortcuts = EDITOR_SHORTCUTS.map(shortcut => ({
+            ...shortcut,
+            name: translate.instant(shortcut.name),
+            detail: translate.instant(shortcut.detail),
+        }))
+        this.findShortcuts = FIND_SHORTCUTS.map(shortcut => ({
+            ...shortcut,
+            name: translate.instant(shortcut.name),
+            detail: translate.instant(shortcut.detail),
+        }))
+    }
 
     get globalShortcuts (): GlobalShortcutRow[] {
         const hotkeys = this.config.store.hotkeys as Record<string, string[] | string[][] | undefined> | undefined
         return GLOBAL_SHORTCUTS.map(shortcut => ({
             ...shortcut,
+            name: this.translate.instant(shortcut.name),
             keys: this.formatHotkeys(hotkeys?.[shortcut.id]),
         }))
     }

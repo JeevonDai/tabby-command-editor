@@ -1,12 +1,12 @@
 import { NgModule } from '@angular/core'
 import { CommonModule } from '@angular/common'
-import { TranslateModule } from '@ngx-translate/core'
 import { ConfigProvider, HotkeyProvider } from 'tabby-core'
 import { TerminalContextMenuItemProvider } from 'tabby-terminal'
 import { SettingsTabProvider } from 'tabby-settings'
 
 import { CommandEditorConfigProvider } from './config'
 import { CommandEditorConfigMigration } from './configMigration'
+import { CommandEditorLocaleService } from './locale'
 import { CommandEditorHotkeyProvider } from './hotkeys'
 import { CommandEditorPanelHotkeyHandler } from './panelHotkeys'
 import { CommandEditorContextMenuProvider } from './contextMenu'
@@ -16,7 +16,6 @@ import { CommandEditorSettingsTabComponent, CommandEditorSettingsTabProvider } f
 @NgModule({
     imports: [
         CommonModule,
-        TranslateModule,
     ],
     declarations: [
         CommandEditorSettingsTabComponent,
@@ -24,6 +23,7 @@ import { CommandEditorSettingsTabComponent, CommandEditorSettingsTabProvider } f
     providers: [
         CommandEditorPanelService,
         CommandEditorConfigMigration,
+        CommandEditorLocaleService,
         CommandEditorPanelHotkeyHandler,
         { provide: ConfigProvider, useClass: CommandEditorConfigProvider, multi: true },
         { provide: HotkeyProvider, useClass: CommandEditorHotkeyProvider, multi: true },
@@ -36,6 +36,7 @@ export default class CommandEditorModule {
     constructor (
         _panelHotkeys: CommandEditorPanelHotkeyHandler,
         _configMigration: CommandEditorConfigMigration,
+        _locale: CommandEditorLocaleService,
     ) {}
 }
 

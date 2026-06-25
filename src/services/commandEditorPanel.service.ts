@@ -168,10 +168,9 @@ export class CommandEditorPanelService {
         if (this.matchesConfiguredHotkey(event, 'open-command-editor-outline')) {
             return () => this.openOutlinePicker()
         }
-        if (this.matchesConfiguredHotkey(event, 'run-command-editor-python')) {
-            return () => this.runCurrentPythonCodeBlock()
-        }
-        if (this.matchesConfiguredHotkey(event, 'toggle-command-editor-python-log')) {
+        // F10 toggles block run mode as a built-in global key (not a configurable
+        // hotkey command); only acts while the panel is open.
+        if (this.panel?.visible && event.key === 'F10' && this.hasNoModifierKeys(event)) {
             return () => this.toggleBlockRunMode()
         }
         if (this.matchesConfiguredHotkey(event, 'open-command-editor-python-log')) {
@@ -2449,6 +2448,10 @@ export class CommandEditorPanelService {
         const next = Math.max(0, current + (increase ? step : -step))
         state.sendIntervalInput.value = this.formatIntervalDisplayValue(next, unit)
         this.persistSendIntervalInput(state)
+    }
+
+    private hasNoModifierKeys (event: KeyboardEvent): boolean {
+        return !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
     }
 
     private matchesConfiguredHotkey (event: KeyboardEvent, hotkeyId: string): boolean {

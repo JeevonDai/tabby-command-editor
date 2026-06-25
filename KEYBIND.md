@@ -49,12 +49,14 @@
 | `Ctrl + Q` | 打开 Markdown 大纲 | `open-command-editor-outline` |
 | `F5` | 重新加载文件 | `reload-command-editor-file` |
 | `F8` | **Send** | `send-command-editor-panel` |
-| `F9` | **Loop or Run** | `send-command-editor-lines` |
-| `F10` | **Block Run Mode** — 终端文件 / 后台运行 | `toggle-command-editor-python-log` |
+| `F9` | **Loop or Run**（代码块内即运行整块） | `send-command-editor-lines` |
 | `Alt + Shift + Enter` | 跳转到符号 | `open-command-editor-symbol` |
 | `Alt + Shift + G` | 打开 Python 日志文件夹 | `open-command-editor-python-log` |
 
-> **macOS 默认值**：上述 `Ctrl` 替换为 `⌘`（Cmd），其余相同。
+
+> F10（Block Run Mode） 为内置全局按键：面板打开时按 F10 即可切换代码块运行方式（终端文件 / 后台运行），无需在「设置 → 快捷键」中单独配置。
+>
+> F9（Loop or Run） 运行代码块和循环发送是一个热键：光标位于代码块内时即直接运行代码块，根据 ```python、```bash、```powershell 区分解释器（bash 需要安装 wsl 使用）。
 
 ---
 
