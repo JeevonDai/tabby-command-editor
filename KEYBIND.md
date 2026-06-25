@@ -28,6 +28,8 @@
 |---|---|---|
 | `Enter` | **搜索下一个** | Monaco 原生 find widget 行为 |
 | `Shift + Enter` | **搜索上一个** | Monaco 原生 find widget 行为 |
+| `F7` | **搜索下一个** | 同 Enter |
+| `Shift + F7` | **搜索上一个** | 同 Shift + Enter |
 | `Ctrl + Enter` | **Send** — 发送当前行/选中内容 | 代码块内会跳过并提示 |
 | `Ctrl + Shift + Enter` | **Loop or Run** | 同 F9 |
 | `F8` | **Send** | 同编辑器内 |

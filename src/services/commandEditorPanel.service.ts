@@ -197,6 +197,12 @@ export class CommandEditorPanelService {
         }
 
         if (findWidgetVisible) {
+            if (event.key === 'F7') {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                this.runFindWidgetMatch(!event.shiftKey)
+                return
+            }
             if (event.key === 'F8') {
                 event.preventDefault()
                 event.stopImmediatePropagation()
@@ -1473,6 +1479,19 @@ export class CommandEditorPanelService {
         }
     }
 
+    private runFindWidgetMatch (forward: boolean): void {
+        const editor = this.panel?.editor
+        if (!editor) {
+            return
+        }
+
+        void editor.trigger(
+            'keyboard',
+            forward ? 'editor.action.nextMatchFindAction' : 'editor.action.previousMatchFindAction',
+            null,
+        )
+    }
+
     private setupEditorKeybindings (
         editor: monaco.editor.IStandaloneCodeEditor,
     ): void {
@@ -1500,6 +1519,17 @@ export class CommandEditorPanelService {
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
         editor.addCommand(monaco.KeyCode.F9, () => void this.loopOrRun(), editorContext)
         editor.addCommand(monaco.KeyCode.F10, () => this.toggleBlockRunMode(), editorContext)
+        const findContext = 'findWidgetVisible'
+        editor.addCommand(
+            monaco.KeyCode.F7,
+            () => this.runFindWidgetMatch(true),
+            findContext,
+        )
+        editor.addCommand(
+            monaco.KeyMod.Shift | monaco.KeyCode.F7,
+            () => this.runFindWidgetMatch(false),
+            findContext,
+        )
         editor.addCommand(
             monaco.KeyMod.Shift | monaco.KeyCode.Enter,
             () => this.saveFile(),
