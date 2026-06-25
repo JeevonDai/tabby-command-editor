@@ -1,24 +1,11 @@
 import { ConfigProvider, Platform } from 'tabby-core'
 import {
-    DEFAULT_CODE_BLOCK_BACKGROUND_RUNNERS_UNIX,
-    DEFAULT_CODE_BLOCK_BACKGROUND_RUNNERS_WINDOWS,
+    DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_UNIX,
+    DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_WINDOWS,
     DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES,
-    DEFAULT_CODE_BLOCK_TERMINAL_FILE_COMMANDS,
+    DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_UNIX,
+    DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_WINDOWS,
 } from './codeBlockRunConfig'
-
-const unixBackgroundRunnerRows = Object.fromEntries(
-    Object.entries(DEFAULT_CODE_BLOCK_BACKGROUND_RUNNERS_UNIX).map(([lang, runners]) => [
-        lang,
-        runners.map(runner => [runner.command, ...runner.args]),
-    ]),
-)
-
-const windowsBackgroundRunnerRows = Object.fromEntries(
-    Object.entries(DEFAULT_CODE_BLOCK_BACKGROUND_RUNNERS_WINDOWS).map(([lang, runners]) => [
-        lang,
-        runners.map(runner => [runner.command, ...runner.args]),
-    ]),
-)
 
 export class CommandEditorConfigProvider extends ConfigProvider {
     defaults = {
@@ -36,16 +23,10 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             blockRunMode: 'background' as 'terminal' | 'background',
             /** Markdown fence language tag → interpreter family (python/bash/powershell). */
             codeBlockLanguageAliases: { ...DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES },
-            /**
-             * BG mode spawn commands, tried in order. Each entry is [executable, ...args];
-             * use "-" as the last arg to read script from stdin.
-             */
-            codeBlockBackgroundRunners: unixBackgroundRunnerRows,
-            /**
-             * TF mode command templates; `{file}` is replaced with the quoted temp script path.
-             * Keys under each language match terminal shell kinds (default, wsl, msys, …).
-             */
-            codeBlockTerminalFileCommands: { ...DEFAULT_CODE_BLOCK_TERMINAL_FILE_COMMANDS },
+            /** TF mode: one command string per interpreter; `{file}` = temp script path. */
+            codeBlockTerminalCommands: { ...DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_UNIX },
+            /** BG mode: one spawn command per interpreter; script via stdin. */
+            codeBlockBackgroundCommands: { ...DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_UNIX },
         },
         hotkeys: {
             'toggle-command-editor-panel': [],
@@ -90,7 +71,8 @@ export class CommandEditorConfigProvider extends ConfigProvider {
         },
         [Platform.Windows]: {
             commandEditor: {
-                codeBlockBackgroundRunners: windowsBackgroundRunnerRows,
+                codeBlockTerminalCommands: { ...DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_WINDOWS },
+                codeBlockBackgroundCommands: { ...DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_WINDOWS },
             },
             hotkeys: {
                 'toggle-command-editor-panel': ['Ctrl-E'],

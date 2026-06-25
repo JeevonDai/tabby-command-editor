@@ -5,7 +5,7 @@ import * as path from 'path'
 import { StringDecoder } from 'string_decoder'
 import {
     CodeBlockRunSettings,
-    CodeBlockTerminalFileCommands,
+    parseCommandLine,
     resolveCodeBlockRunSettings,
     ScriptLanguage,
 } from './codeBlockRunConfig'
@@ -15,8 +15,6 @@ export type { ScriptLanguage } from './codeBlockRunConfig'
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024
 const WINDOWS_APPS_PYTHON_STUB = /\\Microsoft\\WindowsApps\\/i
-const WINDOWS_STORE_PYTHON_MESSAGE = /Microsoft Store|App execution aliases/i
-const WINDOWS_PYTHON_STUB_EXIT_CODE = 9009
 
 export interface RunnableCodeBlock {
     code: string
@@ -131,168 +129,158 @@ export function runCodeBlock (
         }
 
         const scriptLanguage = resolved
-        const runners = settings.backgroundRunners[scriptLanguage].filter(runner => runner.command)
-        const payload = normalizeCode(scriptLanguage, code)
-
-        const tryRunner = (index: number): void => {
-            if (cancelled) {
-                reject(new Error('Script execution cancelled'))
-                return
-            }
-
-            const runner = runners[index]
-            if (!runner) {
-                reject(new Error(notFoundMessage(scriptLanguage)))
-                return
-            }
-
-            const child = spawn(runner.command, runner.args, {
-                windowsHide: true,
-                shell: false,
-                stdio: ['pipe', 'pipe', 'pipe'],
-                env: getSpawnEnvironment(),
-            })
-            activeChild = child
-
-            const stderr: Buffer[] = []
-            let outputBytes = 0
-            let settled = false
-            let started = false
-            let stdoutBuffer = ''
-            let stderrBuffer = ''
-            const stdoutDecoder = new StringDecoder('utf8')
-            const stderrDecoder = new StringDecoder('utf8')
-            let timer: ReturnType<typeof setTimeout>
-
-            const finish = (callback: () => void): void => {
-                if (settled) {
-                    return
-                }
-                settled = true
-                clearTimeout(timer)
-                activeChild = null
-                callback()
-            }
-
-            const resetInactivityTimer = (): void => {
-                clearTimeout(timer)
-                timer = setTimeout(() => {
-                    child.kill()
-                    finish(() => reject(new Error(
-                        `Script produced no output for ${Math.round(timeoutMs / 1000)} seconds`,
-                    )))
-                }, timeoutMs)
-            }
-
-            const countOutput = (chunk: Buffer): boolean => {
-                outputBytes += chunk.length
-                if (outputBytes > maxOutputBytes) {
-                    child.kill()
-                    finish(() => reject(new Error(`Script output exceeded ${formatBytes(maxOutputBytes)}`)))
-                    return false
-                }
-                resetInactivityTimer()
-                return true
-            }
-
-            const emitLine = (callback: (line: string) => void, line: string): boolean => {
-                try {
-                    callback(line)
-                    return true
-                } catch (error) {
-                    child.kill()
-                    finish(() => reject(error))
-                    return false
-                }
-            }
-
-            child.stdout.on('data', (chunk: Buffer) => {
-                if (!countOutput(chunk)) {
-                    return
-                }
-
-                stdoutBuffer += stdoutDecoder.write(chunk)
-                const lines = stdoutBuffer.split(/\r\n|\r|\n/)
-                stdoutBuffer = lines.pop() ?? ''
-                for (const line of lines) {
-                    if (!emitLine(onStdoutLine, line)) {
-                        return
-                    }
-                }
-            })
-            child.stderr.on('data', (chunk: Buffer) => {
-                if (!countOutput(chunk)) {
-                    return
-                }
-
-                stderr.push(chunk)
-                stderrBuffer += stderrDecoder.write(chunk)
-                const lines = stderrBuffer.split(/\r\n|\r|\n/)
-                stderrBuffer = lines.pop() ?? ''
-                for (const line of lines) {
-                    if (!emitLine(onStderrLine, line)) {
-                        return
-                    }
-                }
-            })
-            // The interpreter may exit before consuming stdin (for example on an early syntax error).
-            child.stdin.on('error', () => { /* close/error handlers report the result */ })
-
-            child.once('spawn', () => {
-                started = true
-                resetInactivityTimer()
-                child.stdin.end(payload)
-            })
-
-            child.once('error', error => {
-                if (!started && (error as NodeJS.ErrnoException).code === 'ENOENT') {
-                    finish(() => tryRunner(index + 1))
-                    return
-                }
-                finish(() => reject(error))
-            })
-
-            child.once('close', exitCode => {
-                finish(() => {
-                    if (cancelled) {
-                        reject(new Error('Script execution cancelled'))
-                        return
-                    }
-
-                    const stderrText = Buffer.concat(stderr).toString('utf8').trim()
-                    if (exitCode !== 0) {
-                        if (scriptLanguage === 'python' && isWindowsPythonStubFailure(exitCode, stderrText)) {
-                            tryRunner(index + 1)
-                            return
-                        }
-                        reject(new Error(stderrText || `Script exited with code ${exitCode}`))
-                        return
-                    }
-
-                    stdoutBuffer += stdoutDecoder.end()
-                    stderrBuffer += stderrDecoder.end()
-                    if (stdoutBuffer) {
-                        try {
-                            onStdoutLine(stdoutBuffer)
-                        } catch (error) {
-                            reject(error)
-                            return
-                        }
-                    }
-                    if (stderrBuffer) {
-                        try {
-                            onStderrLine(stderrBuffer)
-                        } catch (error) {
-                            reject(error)
-                            return
-                        }
-                    }
-                    resolve()
-                })
-            })
+        const commandLine = settings.backgroundCommands[scriptLanguage]?.trim()
+        if (!commandLine) {
+            reject(new Error(notFoundMessage(scriptLanguage)))
+            return
         }
 
-        tryRunner(0)
+        const { command, args } = parseCommandLine(commandLine)
+        if (!command) {
+            reject(new Error(notFoundMessage(scriptLanguage)))
+            return
+        }
+
+        const payload = normalizeCode(scriptLanguage, code)
+
+        if (cancelled) {
+            reject(new Error('Script execution cancelled'))
+            return
+        }
+
+        const child = spawn(command, args, {
+            windowsHide: true,
+            shell: false,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: getSpawnEnvironment(),
+        })
+        activeChild = child
+
+        const stderr: Buffer[] = []
+        let outputBytes = 0
+        let settled = false
+        let stdoutBuffer = ''
+        let stderrBuffer = ''
+        const stdoutDecoder = new StringDecoder('utf8')
+        const stderrDecoder = new StringDecoder('utf8')
+        let timer: ReturnType<typeof setTimeout>
+
+        const finish = (callback: () => void): void => {
+            if (settled) {
+                return
+            }
+            settled = true
+            clearTimeout(timer)
+            activeChild = null
+            callback()
+        }
+
+        const resetInactivityTimer = (): void => {
+            clearTimeout(timer)
+            timer = setTimeout(() => {
+                child.kill()
+                finish(() => reject(new Error(
+                    `Script produced no output for ${Math.round(timeoutMs / 1000)} seconds`,
+                )))
+            }, timeoutMs)
+        }
+
+        const countOutput = (chunk: Buffer): boolean => {
+            outputBytes += chunk.length
+            if (outputBytes > maxOutputBytes) {
+                child.kill()
+                finish(() => reject(new Error(`Script output exceeded ${formatBytes(maxOutputBytes)}`)))
+                return false
+            }
+            resetInactivityTimer()
+            return true
+        }
+
+        const emitLine = (callback: (line: string) => void, line: string): boolean => {
+            try {
+                callback(line)
+                return true
+            } catch (error) {
+                child.kill()
+                finish(() => reject(error))
+                return false
+            }
+        }
+
+        child.stdout.on('data', (chunk: Buffer) => {
+            if (!countOutput(chunk)) {
+                return
+            }
+
+            stdoutBuffer += stdoutDecoder.write(chunk)
+            const lines = stdoutBuffer.split(/\r\n|\r|\n/)
+            stdoutBuffer = lines.pop() ?? ''
+            for (const line of lines) {
+                if (!emitLine(onStdoutLine, line)) {
+                    return
+                }
+            }
+        })
+        child.stderr.on('data', (chunk: Buffer) => {
+            if (!countOutput(chunk)) {
+                return
+            }
+
+            stderr.push(chunk)
+            stderrBuffer += stderrDecoder.write(chunk)
+            const lines = stderrBuffer.split(/\r\n|\r|\n/)
+            stderrBuffer = lines.pop() ?? ''
+            for (const line of lines) {
+                if (!emitLine(onStderrLine, line)) {
+                    return
+                }
+            }
+        })
+        child.stdin.on('error', () => { /* close/error handlers report the result */ })
+
+        child.once('spawn', () => {
+            resetInactivityTimer()
+            child.stdin.end(payload)
+        })
+
+        child.once('error', error => {
+            finish(() => reject(error))
+        })
+
+        child.once('close', exitCode => {
+            finish(() => {
+                if (cancelled) {
+                    reject(new Error('Script execution cancelled'))
+                    return
+                }
+
+                const stderrText = Buffer.concat(stderr).toString('utf8').trim()
+                if (exitCode !== 0) {
+                    reject(new Error(stderrText || `Script exited with code ${exitCode}`))
+                    return
+                }
+
+                stdoutBuffer += stdoutDecoder.end()
+                stderrBuffer += stderrDecoder.end()
+                if (stdoutBuffer) {
+                    try {
+                        onStdoutLine(stdoutBuffer)
+                    } catch (error) {
+                        reject(error)
+                        return
+                    }
+                }
+                if (stderrBuffer) {
+                    try {
+                        onStderrLine(stderrBuffer)
+                    } catch (error) {
+                        reject(error)
+                        return
+                    }
+                }
+                resolve()
+            })
+        })
     })
 
     return {
@@ -436,6 +424,7 @@ function notFoundMessage (language: ScriptLanguage): string {
         case 'powershell':
             return 'PowerShell was not found. Make powershell or pwsh available in PATH.'
     }
+    return 'Script runner was not found.'
 }
 
 function parseFenceStart (line: string, lineNumber: number): Fence | null {
@@ -457,15 +446,6 @@ function isFenceEnd (line: string, fence: Fence): boolean {
     return new RegExp(`^\\s*${marker}{${fence.length},}\\s*$`).test(line)
 }
 
-export type TerminalShellKind = 'wsl' | 'msys' | 'powershell' | 'unix' | 'ssh' | 'unknown'
-
-export interface TerminalProfileHint {
-    id?: string
-    name?: string
-    provider?: string
-    options?: { name?: string, [key: string]: unknown }
-}
-
 export function normalizeBashScript (code: string): string {
     const normalized = code.replace(/\r\n?/g, '\n')
     return normalized.endsWith('\n') ? normalized : `${normalized}\n`
@@ -480,65 +460,18 @@ export function windowsPathToWslPath (windowsPath: string): string {
     return `/mnt/${match[1].toLowerCase()}/${match[2]}`
 }
 
-export function windowsPathToMsysPath (windowsPath: string): string {
-    const forward = windowsPath.replace(/\\/g, '/')
-    const match = forward.match(/^([a-zA-Z]):\/(.*)$/)
-    if (!match) {
-        return forward
-    }
-    return `/${match[1].toLowerCase()}/${match[2]}`
-}
-
-export function detectTerminalShellKind (
-    profile: TerminalProfileHint | undefined,
-    label = '',
-): TerminalShellKind {
-    const parts = [
-        profile?.provider,
-        profile?.id,
-        profile?.name,
-        profile?.options?.name,
-        label,
-    ].filter(Boolean).join(' ').toLowerCase()
-
-    if (/\bssh\b|tabby-ssh|remote/.test(parts)) {
-        return 'ssh'
-    }
-    if (/wsl|ubuntu|debian|fedora|arch|kali|opensuse|alpine|\bzsh\b|\bbash\b/.test(parts)) {
-        return 'wsl'
-    }
-    if (/git\s*bash|msys|mingw|cygwin/.test(parts)) {
-        return 'msys'
-    }
-    if (/powershell|pwsh|windows\s*powershell/.test(parts)) {
-        return 'powershell'
-    }
-    if (process.platform !== 'win32') {
-        return 'unix'
-    }
-    return 'unknown'
-}
-
 function shellQuoteSingle (value: string): string {
     return `'${value.replace(/'/g, `'\"'\"'`)}'`
 }
 
-export function buildBashTerminalCommand (
+export function buildTerminalCommand (
     scriptPath: string,
-    shellKind: TerminalShellKind,
+    language: ScriptLanguage,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): string {
-    const quoted = quoteTerminalPath(scriptPath, shellKind)
-    return buildTerminalFileCommand('bash', shellKind, quoted, settings.terminalFileCommands.bash)
-}
-
-export function buildBashHeredocPayload (code: string): string {
-    const normalized = normalizeBashScript(code)
-    let delimiter = 'TABBY_SCRIPT_EOF'
-    while (normalized.includes(delimiter)) {
-        delimiter += '_'
-    }
-    return `bash <<'${delimiter}'\n${normalized}${delimiter}`
+    const template = settings.terminalCommands[language]
+    const quoted = quoteTerminalPath(scriptPath, template)
+    return template.replace(/\{file\}/g, quoted)
 }
 
 export function writeTempBashScript (code: string): string {
@@ -553,30 +486,30 @@ export function writeTempBashScript (code: string): string {
 
 export function resolveBashTerminalPayload (
     code: string,
-    shellKind: TerminalShellKind,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): TerminalRunPayload {
-    if (shellKind === 'ssh') {
-        return { mode: 'multiline', command: buildBashHeredocPayload(code) }
-    }
-
     const scriptPath = writeTempBashScript(code)
     return {
         mode: 'line',
-        command: buildBashTerminalCommand(scriptPath, shellKind, settings),
+        command: buildTerminalCommand(scriptPath, 'bash', settings),
     }
 }
 
-export type TerminalRunPayload = { mode: 'line', command: string } | { mode: 'multiline', command: string }
+export type TerminalRunPayload = { mode: 'line', command: string }
 
-function quoteTerminalPath (scriptPath: string, shellKind: TerminalShellKind): string {
-    if (process.platform === 'win32' && (shellKind === 'wsl' || shellKind === 'unix')) {
+function quoteTerminalPath (scriptPath: string, template: string): string {
+    if (resolveFilePathStyle(template) === 'wsl') {
         return shellQuoteSingle(windowsPathToWslPath(scriptPath))
     }
-    if (process.platform === 'win32' && shellKind === 'msys') {
-        return shellQuoteSingle(windowsPathToMsysPath(scriptPath))
-    }
     return shellQuoteSingle(scriptPath)
+}
+
+/** How `{file}` is quoted before substituting into a TF command template. */
+export function resolveFilePathStyle (template: string): 'wsl' | 'win' {
+    if (process.platform === 'win32' && /\bwsl\b/i.test(template)) {
+        return 'wsl'
+    }
+    return 'win'
 }
 
 export function writeTempPythonScript (code: string): string {
@@ -601,129 +534,42 @@ export function writeTempPowerShellScript (code: string): string {
     return scriptPath
 }
 
-export function buildPythonHeredocPayload (code: string): string {
-    const normalized = code.endsWith('\n') ? code : `${code}\n`
-    let delimiter = 'TABBY_PYTHON_EOF'
-    while (normalized.includes(delimiter)) {
-        delimiter += '_'
-    }
-    return `python3 -u <<'${delimiter}'\n${normalized}${delimiter}`
-}
-
-export function buildPowerShellHeredocPayload (code: string): string {
-    const normalized = code.replace(/\r\n?/g, '\n')
-    const body = normalized.endsWith('\n') ? normalized : `${normalized}\n`
-    let delimiter = 'TABBY_PWSH_EOF'
-    while (body.includes(delimiter)) {
-        delimiter += '_'
-    }
-    return `pwsh -NoProfile -Command - <<'${delimiter}'\n${body}${delimiter}`
-}
-
-export function buildPythonTerminalCommand (
-    scriptPath: string,
-    shellKind: TerminalShellKind,
-    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
-): string {
-    const quoted = quoteTerminalPath(scriptPath, shellKind)
-    return buildTerminalFileCommand('python', shellKind, quoted, settings.terminalFileCommands.python)
-}
-
-export function buildPowerShellTerminalCommand (
-    scriptPath: string,
-    shellKind: TerminalShellKind,
-    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
-): string {
-    const quoted = quoteTerminalPath(scriptPath, shellKind)
-    return buildTerminalFileCommand('powershell', shellKind, quoted, settings.terminalFileCommands.powershell)
-}
-
 export function resolvePythonTerminalPayload (
     code: string,
-    shellKind: TerminalShellKind,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): TerminalRunPayload {
-    if (shellKind === 'ssh') {
-        return { mode: 'multiline', command: buildPythonHeredocPayload(code) }
-    }
-
     const scriptPath = writeTempPythonScript(code)
     return {
         mode: 'line',
-        command: buildPythonTerminalCommand(scriptPath, shellKind, settings),
+        command: buildTerminalCommand(scriptPath, 'python', settings),
     }
 }
 
 export function resolvePowerShellTerminalPayload (
     code: string,
-    shellKind: TerminalShellKind,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): TerminalRunPayload {
-    if (shellKind === 'ssh') {
-        return { mode: 'multiline', command: buildPowerShellHeredocPayload(code) }
-    }
-
     const scriptPath = writeTempPowerShellScript(code)
     return {
         mode: 'line',
-        command: buildPowerShellTerminalCommand(scriptPath, shellKind, settings),
+        command: buildTerminalCommand(scriptPath, 'powershell', settings),
     }
 }
 
 export function resolveScriptTerminalPayload (
     language: ScriptLanguage,
     code: string,
-    shellKind: TerminalShellKind,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): TerminalRunPayload {
     switch (language) {
         case 'bash':
-            return resolveBashTerminalPayload(code, shellKind, settings)
+            return resolveBashTerminalPayload(code, settings)
         case 'python':
-            return resolvePythonTerminalPayload(code, shellKind, settings)
+            return resolvePythonTerminalPayload(code, settings)
         case 'powershell':
-            return resolvePowerShellTerminalPayload(code, shellKind, settings)
+            return resolvePowerShellTerminalPayload(code, settings)
     }
-}
-
-function buildTerminalFileCommand (
-    language: ScriptLanguage,
-    shellKind: TerminalShellKind,
-    quotedFile: string,
-    commands: CodeBlockTerminalFileCommands,
-): string {
-    const template = pickTerminalFileTemplate(commands, shellKind)
-    return template.replace(/\{file\}/g, quotedFile)
-}
-
-function pickTerminalFileTemplate (
-    commands: CodeBlockTerminalFileCommands,
-    shellKind: TerminalShellKind,
-): string {
-    switch (shellKind) {
-        case 'wsl':
-            return commands.wsl ?? commands.default
-        case 'unix':
-            return commands.unix ?? commands.wsl ?? commands.default
-        case 'msys':
-            return commands.msys ?? commands.default
-        case 'powershell':
-            return commands.powershell ?? commands.default
-        case 'unknown':
-            return commands.unknown ?? commands.default
-        case 'ssh':
-            return commands.ssh ?? commands.default
-        default:
-            return commands.default
-    }
-}
-
-function isWindowsPythonStubFailure (exitCode: number | null, stderrText: string): boolean {
-    if (process.platform !== 'win32') {
-        return false
-    }
-    return exitCode === WINDOWS_PYTHON_STUB_EXIT_CODE
-        || WINDOWS_STORE_PYTHON_MESSAGE.test(stderrText)
+    throw new Error(`Unsupported code block language: ${language}`)
 }
 
 function formatBytes (bytes: number): string {

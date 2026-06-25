@@ -104,13 +104,15 @@
 
 ### 七、代码块运行命令配置
 
-在 Tabby 配置文件 `config.yaml` 的 `commandEditor` 节点下，可覆盖以下三项（未写的字段使用插件默认值）：
+在 Tabby 配置文件 `config.yaml` 的 `commandEditor` 节点下配置。只按 **解释器族**（`python` / `bash` / `powershell`）和 **操作系统**（Windows vs macOS/Linux）区分，**不再**根据当前终端类型（WSL / Git Bash / PowerShell 等）选择不同命令。
 
 | 配置项 | 作用 |
 |---|---|
-| `codeBlockLanguageAliases` | 围栏语言标记 → 解释器族（`python` / `bash` / `powershell`） |
-| `codeBlockBackgroundRunners` | **BG 模式**：按顺序尝试的 spawn 命令；每项为 `[可执行文件, ...参数]`，末参 `-` 表示从 stdin 读脚本 |
-| `codeBlockTerminalFileCommands` | **TF 模式**：发送到终端的命令模板；`{file}` 替换为临时脚本路径；可按终端类型设 `default` / `wsl` / `msys` / `powershell` 等 |
+| `codeBlockLanguageAliases` | 围栏语言标记 → 解释器族 |
+| `codeBlockTerminalCommands` | **TF 模式**：发送到当前终端的命令字符串；`{file}` = 临时脚本路径 |
+| `codeBlockBackgroundCommands` | **BG 模式**：后台 spawn 的命令字符串；脚本内容写入 stdin |
+
+TF 与 BG 使用相同的命令风格（一行字符串），区别仅在于 TF 通过 `{file}` 传临时文件，BG 从 stdin 读脚本。
 
 **默认 `codeBlockLanguageAliases`**
 
@@ -126,54 +128,42 @@ codeBlockLanguageAliases:
   ps1: powershell
 ```
 
-**默认 `codeBlockBackgroundRunners`（Windows）**
+**Windows 默认命令**
 
 ```yaml
-codeBlockBackgroundRunners:
-  python:
-    - [py, -3, -u, -]
-    - [python, -u, -]
-    - [python3, -u, -]
-  bash:
-    - [bash, -s]
-  powershell:
-    - [pwsh, -NoProfile, -NonInteractive, -Command, -]
-    - [powershell, -NoProfile, -NonInteractive, -Command, -]
+codeBlockTerminalCommands:
+  python: python -u {file}
+  bash: wsl bash {file}
+  powershell: powershell -NoProfile -ExecutionPolicy Bypass -File {file}
+
+codeBlockBackgroundCommands:
+  python: py -3 -u -
+  bash: bash -s
+  powershell: powershell -NoProfile -NonInteractive -Command -
 ```
 
-**默认 `codeBlockBackgroundRunners`（macOS / Linux）**
+**macOS / Linux 默认命令**
 
 ```yaml
-codeBlockBackgroundRunners:
-  python:
-    - [python3, -u, -]
-    - [python, -u, -]
-  bash:
-    - [bash, -s]
-    - [sh, -s]
-  powershell:
-    - [pwsh, -NoProfile, -NonInteractive, -Command, -]
+codeBlockTerminalCommands:
+  python: python3 -u {file}
+  bash: bash {file}
+  powershell: pwsh -NoProfile -File {file}
+
+codeBlockBackgroundCommands:
+  python: python3 -u -
+  bash: bash -s
+  powershell: pwsh -NoProfile -NonInteractive -Command -
 ```
 
-**默认 `codeBlockTerminalFileCommands`（TF 模式）**
+**`{file}` 路径占位符**：配置里只写 `{file}`，勿手写 `/mnt/c/...`。Windows 下若命令含 `wsl`（如 `wsl bash {file}`），插件自动将路径转为 `'/mnt/c/...'` 并加引号；否则使用 Windows 原生路径。
+
+**自定义 WSL 发行版示例**（仅改 bash TF 命令）：
 
 ```yaml
-codeBlockTerminalFileCommands:
-  python:
-    default: python -u {file}
-    wsl: python3 -u {file}
-    unix: python3 -u {file}
-  bash:
-    default: bash {file}
-    wsl: bash {file}
-    msys: bash {file}
-    powershell: wsl bash {file}
-    unknown: wsl bash {file}
-  powershell:
-    default: pwsh -NoProfile -File {file}
-    powershell: powershell -NoProfile -ExecutionPolicy Bypass -File {file}
+commandEditor:
+  codeBlockTerminalCommands:
+    bash: wsl -d Ubuntu2 bash {file}
 ```
 
-> Windows 下在 PowerShell / CMD 终端运行 `bash` 代码块时，TF 模式默认通过 `wsl bash {file}` 执行（需已安装 WSL）。可在 `codeBlockTerminalFileCommands.bash` 中改为 `bash {file}` 以使用 Git Bash 等。
->
-> 设置页 **命令编辑器 → Code block run commands** 会显示当前合并后的完整 JSON，便于复制修改。
+设置页 **命令编辑器 → Code block run commands** 会显示当前平台下合并后的完整 JSON。

@@ -7,12 +7,10 @@ import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandE
 import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker, pruneQuickAccessProviders } from '../commandOutline'
 import {
     CodeExecution,
-    detectTerminalShellKind,
     findRunnableCodeBlockAtCursor,
     resolveScriptLanguage,
     resolveScriptTerminalPayload,
     runCodeBlock,
-    TerminalProfileHint,
 } from '../pythonCodeBlockRunner'
 import { CodeBlockRunSettings, resolveCodeBlockRunSettings } from '../codeBlockRunConfig'
 // @ts-ignore - monaco-editor types
@@ -688,17 +686,11 @@ export class CommandEditorPanelService {
         }
 
         const terminalLabel = this.getTerminalLabel(terminal)
-        const tab = terminal as { profile?: TerminalProfileHint }
-        const shellKind = detectTerminalShellKind(tab.profile, terminalLabel)
-        const payload = resolveScriptTerminalPayload(scriptLanguage, block.code, shellKind, runSettings)
+        const payload = resolveScriptTerminalPayload(scriptLanguage, block.code, runSettings)
         const languageLabel = this.getScriptLanguageLabel(block.language)
 
         try {
-            if (payload.mode === 'multiline') {
-                this.sendToTerminal(terminal, payload.command)
-            } else {
-                this.sendLineToTerminal(terminal, payload.command)
-            }
+            this.sendLineToTerminal(terminal, payload.command)
             this.notifications.notice(
                 `${terminalLabel}: ${languageLabel} script sent to terminal (${this.getBlockRunModeLabel()})`,
             )
@@ -2775,7 +2767,7 @@ export class CommandEditorPanelService {
     }
 
     private getRunnableLanguageFamilies (): string[] {
-        return [...new Set(Object.values(this.getCodeBlockRunSettings().languageAliases))]
+        return [...new Set(Object.values(this.getCodeBlockRunSettings().languageAliases))] as string[]
     }
 
     private getBlockRunMode (): BlockRunMode {

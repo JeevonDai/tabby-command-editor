@@ -127,8 +127,8 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                 <p class="text-muted">{{ labels.codeBlockRunDesc }}</p>
                 <ul class="command-editor-config-keys text-muted">
                     <li>codeBlockLanguageAliases — {{ labels.codeBlockAliases }}</li>
-                    <li>codeBlockBackgroundRunners — {{ labels.codeBlockBg }}</li>
-                    <li>codeBlockTerminalFileCommands — {{ labels.codeBlockTf }}</li>
+                    <li>codeBlockTerminalCommands — {{ labels.codeBlockTf }}</li>
+                    <li>codeBlockBackgroundCommands — {{ labels.codeBlockBg }}</li>
                 </ul>
                 <pre class="command-editor-config-json">{{ codeBlockRunConfigJson }}</pre>
             </section>
@@ -260,10 +260,10 @@ export class CommandEditorSettingsTabComponent {
             searchFocusKeys: translate.instant('Search focus keys'),
             searchFocusKeysDesc: translate.instant('These keys keep sending and running available while Monaco search is open.'),
             codeBlockRun: translate.instant('Code block run commands'),
-            codeBlockRunDesc: translate.instant('Customize python/bash/powershell execution under commandEditor in config.yaml. Below is the effective merged configuration (defaults + your overrides).'),
-            codeBlockAliases: translate.instant('Markdown fence tag to interpreter family (python / bash / powershell)'),
-            codeBlockBg: translate.instant('BG mode: spawn commands tried in order; last arg "-" reads script from stdin'),
-            codeBlockTf: translate.instant('TF mode: shell command templates; {file} is replaced with the quoted temp script path'),
+            codeBlockRunDesc: translate.instant('Customize python/bash/powershell under commandEditor in config.yaml (keys: python, bash, powershell). Platform defaults apply on Windows vs macOS/Linux. Below is the effective merged configuration.'),
+            codeBlockAliases: translate.instant('Markdown fence tag → interpreter family (python / bash / powershell)'),
+            codeBlockBg: translate.instant('BG mode: spawn command string; script body is written to stdin'),
+            codeBlockTf: translate.instant('TF mode: command sent to terminal; {file} = quoted temp script path'),
         }
         this.editorShortcuts = EDITOR_SHORTCUTS.map(shortcut => ({
             ...shortcut,

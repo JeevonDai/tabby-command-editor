@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core'
 import { AppService, ConfigService } from 'tabby-core'
+import { CommandEditorCodeBlockConfig, resolveCodeBlockRunSettings } from './codeBlockRunConfig'
 
 /** Remove deprecated config keys from older plugin versions. */
 @Injectable()
@@ -60,6 +61,15 @@ export class CommandEditorConfigMigration {
 
         if (hotkeys && !('toggle-command-editor-python-log' in hotkeys)) {
             hotkeys['toggle-command-editor-python-log'] = ['F10']
+            changed = true
+        }
+
+        if (commandEditor?.['codeBlockTerminalFileCommands'] || commandEditor?.['codeBlockBackgroundRunners']) {
+            const resolved = resolveCodeBlockRunSettings(commandEditor as CommandEditorCodeBlockConfig)
+            commandEditor.codeBlockTerminalCommands = resolved.terminalCommands
+            commandEditor.codeBlockBackgroundCommands = resolved.backgroundCommands
+            delete commandEditor.codeBlockTerminalFileCommands
+            delete commandEditor.codeBlockBackgroundRunners
             changed = true
         }
 
