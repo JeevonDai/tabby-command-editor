@@ -35,6 +35,9 @@
       "tabby-terminal": [
         "../node_modules/tabby-terminal"
       ],
+      "tabby-settings": [
+        "../node_modules/tabby-settings"
+      ],
       "*": [
         "../node_modules/*"
       ]

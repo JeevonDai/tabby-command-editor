@@ -22,17 +22,16 @@ const GLOBAL_SHORTCUTS: Array<{ id: string; name: string }> = [
     { id: 'reload-command-editor-file', name: 'Reload file' },
     { id: 'open-command-editor-outline', name: 'Markdown outline' },
     { id: 'open-command-editor-symbol', name: 'Go to symbol' },
-    { id: 'send-command-editor-lines', name: 'Loop selected lines' },
+    { id: 'send-command-editor-lines', name: 'Loop or run' },
     { id: 'cancel-command-editor-loop', name: 'Stop loop' },
-    { id: 'run-command-editor-python', name: 'Run Python block' },
+    { id: 'run-command-editor-python', name: 'Loop or run (legacy)' },
     { id: 'toggle-command-editor-python-log', name: 'Toggle Python log mode' },
     { id: 'open-command-editor-python-log', name: 'Open Python log location' },
 ]
 
 const EDITOR_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Enter / F8', name: 'Send', detail: 'Send current line or selected text' },
-    { keys: 'F7', name: 'Loop', detail: 'Loop selected lines' },
-    { keys: 'F9', name: 'Run', detail: 'Run Python block at cursor' },
+    { keys: 'F7', name: 'Loop or run', detail: 'Run code block at cursor, otherwise loop selected lines' },
     { keys: 'Shift+Enter', name: 'Save', detail: 'Save current document' },
     { keys: 'Alt+Enter', name: 'New line', detail: 'Insert a line without sending' },
     { keys: 'Ctrl+/', name: 'Line comment', detail: 'Toggle line comment' },
@@ -43,9 +42,7 @@ const EDITOR_SHORTCUTS: ShortcutRow[] = [
 
 const FIND_SHORTCUTS: ShortcutRow[] = [
     { keys: 'F8 / Ctrl+Enter', name: 'Send', detail: 'Send current line while search is open' },
-    { keys: 'F7', name: 'Loop', detail: 'Loop selected lines while search is open' },
-    { keys: 'F9', name: 'Run', detail: 'Run Python block while search is open' },
-    { keys: 'Ctrl+Shift+Enter', name: 'Loop or Run', detail: 'Run Python in a block, otherwise loop lines' },
+    { keys: 'F7 / Ctrl+Shift+Enter', name: 'Loop or run', detail: 'Run code block at cursor, otherwise loop selected lines' },
 ]
 
 @Injectable()

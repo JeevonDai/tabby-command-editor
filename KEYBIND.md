@@ -26,10 +26,9 @@
 | `Enter` | **搜索下一个** | Monaco 原生 find widget 行为 |
 | `Shift + Enter` | **搜索上一个** | Monaco 原生 find widget 行为 |
 | `Ctrl + Enter` | **Send** — 发送当前行/选中内容到终端 | 搜索框打开时也能直接发送，无需关闭搜索框 |
-| `Ctrl + Shift + Enter` | **Loop** 或 **Run** — 若光标在 \`\`\`python 代码块中则 Run，否则 Loop | 自动判断代码块位置 |
-| `F7` | **Loop** — 循环发送选中的行 | 搜索框打开时也能直接循环发送 |
+| `Ctrl + Shift + Enter` | **Loop or Run** — 若光标在 \`\`\`python / \`\`\`powershell / \`\`\`bash 代码块中则运行代码块，否则按 Loop 配置循环发送 | 搜索框打开时也能使用 |
+| `F7` | **Loop or Run** — 同上 | 搜索框打开时也能使用 |
 | `F8` | **Send** — 发送当前行/选中内容到终端 | 搜索框打开时也能直接发送 |
-| `F9` | **Run** — 运行光标所在的 Python 代码块 | 搜索框打开时也能直接运行 |
 
 ---
 
@@ -43,8 +42,7 @@
 | `Ctrl + S` | 保存编辑器文档 | `save-command-editor-file` |
 | `Ctrl + Q` | 打开 Markdown 大纲 | `open-command-editor-outline` |
 | `F5` | 重新加载文件 | `reload-command-editor-file` |
-| `F7` | **Loop** — 循环发送选中的行 | `send-command-editor-lines` |
-| `F9` | **Run** — 运行光标所在的 Python 代码块 | `run-command-editor-python` |
+| `F7` | **Loop or Run** — 在代码块中运行脚本，否则循环发送选中的行 | `send-command-editor-lines` |
 | `F10` | 切换 Python 日志模式（通知 / 文件） | `toggle-command-editor-python-log` |
 | `Alt + Shift + Enter` | 跳转到符号 | `open-command-editor-symbol` |
 | `Alt + Shift + G` | 打开 Python 日志文件夹 | `open-command-editor-python-log` |
@@ -74,8 +72,7 @@
 | Save | 保存文件 | `Ctrl + S` / `Shift + Enter` |
 | Close | 关闭面板 | `Ctrl + E` |
 | **Send** | 发送当前行/选中内容 | `Enter` / `F8` |
-| **Loop** | 循环发送（可配置间隔和次数） | `F7` |
-| **Run** | 运行 Python 代码块 | `F9` |
+| **Loop Or Run** | 在代码块中运行脚本，否则按间隔/次数循环发送 | `F7` |
 
 ---
 

@@ -16,16 +16,14 @@ export class CommandEditorPanelHotkeyHandler {
                     await this.panelService.reloadFile()
                     break
                 case 'send-command-editor-lines':
-                    await this.panelService.sendLinesWithInterval()
+                case 'run-command-editor-python':
+                    await this.panelService.loopOrRun()
                     break
                 case 'cancel-command-editor-loop':
                     this.panelService.cancelLoopSend()
                     break
                 case 'open-command-editor-symbol':
                     this.panelService.openSymbolPicker()
-                    break
-                case 'run-command-editor-python':
-                    await this.panelService.runCurrentPythonCodeBlock()
                     break
                 case 'toggle-command-editor-python-log':
                     this.panelService.togglePythonLogMode()

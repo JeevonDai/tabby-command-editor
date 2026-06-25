@@ -72,7 +72,6 @@ interface PanelState {
     sendIntervalInput: HTMLInputElement
     sendLoopCountInput: HTMLInputElement
     loopSendBtn: HTMLButtonElement
-    runCodeBtn: HTMLButtonElement
     batchStatusContainer: HTMLElement
     filePath: string | null
     visible: boolean
@@ -167,7 +166,7 @@ export class CommandEditorPanelService {
             return () => this.openOutlinePicker()
         }
         if (this.matchesConfiguredHotkey(event, 'run-command-editor-python')) {
-            return () => this.runCurrentPythonCodeBlock()
+            return () => this.loopOrRun()
         }
         if (this.matchesConfiguredHotkey(event, 'toggle-command-editor-python-log')) {
             return () => this.togglePythonLogMode()
@@ -198,19 +197,13 @@ export class CommandEditorPanelService {
             if (event.key === 'F7') {
                 event.preventDefault()
                 event.stopImmediatePropagation()
-                void this.sendLinesWithInterval()
+                void this.loopOrRun()
                 return
             }
             if (event.key === 'F8') {
                 event.preventDefault()
                 event.stopImmediatePropagation()
                 this.sendFromPanel(undefined, true)
-                return
-            }
-            if (event.key === 'F9') {
-                event.preventDefault()
-                event.stopImmediatePropagation()
-                void this.runCurrentPythonCodeBlock()
                 return
             }
         }
@@ -229,12 +222,7 @@ export class CommandEditorPanelService {
             if (event.key === 'Enter' && event.shiftKey) {
                 event.preventDefault()
                 event.stopImmediatePropagation()
-                const block = findRunnableCodeBlockAtCursor(this.panel.editor)
-                if (block) {
-                    void this.runCurrentPythonCodeBlock()
-                } else {
-                    void this.sendLinesWithInterval()
-                }
+                void this.loopOrRun()
                 return
             }
         }
@@ -498,6 +486,21 @@ export class CommandEditorPanelService {
         }
 
         this.sendToTerminal(terminalTab, text)
+    }
+
+    async loopOrRun (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
+        const state = this.panel
+        if (!state?.visible) {
+            return
+        }
+
+        const block = findRunnableCodeBlockAtCursor(state.editor)
+        if (block) {
+            await this.runCurrentPythonCodeBlock()
+            return
+        }
+
+        await this.sendLinesWithInterval(_terminal)
     }
 
     async runCurrentPythonCodeBlock (): Promise<void> {
@@ -894,7 +897,7 @@ export class CommandEditorPanelService {
             this.panel = null
         }
 
-        if (this.panel && !this.panel.runCodeBtn) {
+        if (this.panel && 'runCodeBtn' in this.panel) {
             this.panel.root.remove()
             this.panel = null
         }
@@ -983,16 +986,13 @@ export class CommandEditorPanelService {
 
         loopCountWrap.append(sendLoopCountInput, loopCountUnit)
 
-        const loopSendBtn = mkBtn('Loop')
-        loopSendBtn.title = 'F7'
-
-        const runCodeBtn = mkBtn('Run')
-        runCodeBtn.title = 'F9'
+        const loopSendBtn = mkBtn('Loop Or Run')
+        loopSendBtn.title = 'F7 — run code block at cursor, otherwise loop selected lines'
 
         const sendBtn = mkBtn('Send', true)
         sendBtn.title = 'Enter/F8'
 
-        sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, runCodeBtn, sendBtn)
+        sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, sendBtn)
         toolbar.append(openBtn, saveBtn, closeBtn, fileLabel, sendGroup)
 
         const batchStatusContainer = document.createElement('div')
@@ -1036,8 +1036,7 @@ export class CommandEditorPanelService {
             event.preventDefault()
             this.savedEditorSelection = editor.getSelection()
         })
-        loopSendBtn.addEventListener('click', () => void this.sendLinesWithInterval())
-        runCodeBtn.addEventListener('click', () => void this.runCurrentPythonCodeBlock())
+        loopSendBtn.addEventListener('click', () => void this.loopOrRun())
         sendIntervalInput.addEventListener('change', () => this.persistSendIntervalInput(sendIntervalInput))
         sendIntervalInput.addEventListener('wheel', (event: WheelEvent) => {
             event.preventDefault()
@@ -1067,7 +1066,6 @@ export class CommandEditorPanelService {
             sendIntervalInput,
             sendLoopCountInput,
             loopSendBtn,
-            runCodeBtn,
             batchStatusContainer,
             filePath: null,
             visible: false,
