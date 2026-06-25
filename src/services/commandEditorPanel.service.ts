@@ -515,8 +515,9 @@ export class CommandEditorPanelService {
         }
 
         const editor = state.editor
+        const findActive = this.isFindWidgetVisible()
         const selection = editor.getSelection()
-        if (selection && !selection.isEmpty()) {
+        if (selection && !selection.isEmpty() && !findActive) {
             await this.sendLinesWithInterval(_terminal)
             return
         }
@@ -540,11 +541,18 @@ export class CommandEditorPanelService {
 
         const position = editor.getPosition()
         const model = editor.getModel()
-        if (!position || !model) {
+        if (!model) {
             return
         }
 
-        const rawLine = model.getLineContent(position.lineNumber)
+        const lineNumber = findActive && selection && !selection.isEmpty()
+            ? selection.startLineNumber
+            : position?.lineNumber
+        if (!lineNumber) {
+            return
+        }
+
+        const rawLine = model.getLineContent(lineNumber)
         const lineText = stripComments(rawLine).trim()
 
         if (lineText) {
@@ -557,8 +565,11 @@ export class CommandEditorPanelService {
             }
         }
 
-        if (position.lineNumber < model.getLineCount()) {
-            this.moveEditorToLine(editor, position.lineNumber + 1)
+        if (lineNumber < model.getLineCount()) {
+            this.moveEditorToLine(editor, lineNumber + 1)
+            if (findActive) {
+                editor.focus()
+            }
         }
     }
 
@@ -2621,7 +2632,7 @@ export class CommandEditorPanelService {
             return
         }
 
-        editor.setPosition({ lineNumber, column: 1 })
+        editor.setSelection(new monaco.Selection(lineNumber, 1, lineNumber, 1))
         editor.revealLineInCenter(lineNumber)
     }
 

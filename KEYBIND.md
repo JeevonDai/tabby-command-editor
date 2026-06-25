@@ -33,7 +33,7 @@
 | `Ctrl + Enter` | **Send** — 发送当前行/选中内容 | 代码块内会跳过并提示 |
 | `Ctrl + Shift + Enter` | **Loop or Run** | 同 F9 |
 | `F8` | **Send** | 同编辑器内 |
-| `F9` | **Loop or Run** | 同编辑器内 |
+| `F9` | **Loop or Run** | 同编辑器内；发送后光标移到下一行（不停留在当前匹配行） |
 | `F10` | **Block Run Mode** | 同编辑器内 |
 
 ---

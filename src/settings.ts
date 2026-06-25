@@ -47,7 +47,7 @@ const FIND_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Enter / F7', name: 'Find next', detail: 'Next search match while find widget is open' },
     { keys: 'Shift+Enter / Shift+F7', name: 'Find previous', detail: 'Previous search match while find widget is open' },
     { keys: 'F8 / Ctrl+Enter', name: 'Send', detail: 'Send current line while search is open (blocked inside code blocks)' },
-    { keys: 'F9 / Ctrl+Shift+Enter', name: 'Loop or Run', detail: 'Same as editor F9' },
+    { keys: 'F9 / Ctrl+Shift+Enter', name: 'Loop or Run', detail: 'Same as editor F9; in find mode sends match line and moves to the next line' },
     { keys: 'F10', name: 'Block run mode', detail: 'Toggle: terminal temp file vs background (stdout→terminal, stderr→log)' },
 ]
 
