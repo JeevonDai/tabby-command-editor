@@ -69,9 +69,8 @@ interface PanelState {
     resizeHandle: HTMLElement
     editorHost: HTMLElement
     editor: monaco.editor.IStandaloneCodeEditor
-    fileLabel: HTMLElement
-    fileHistorySelect: HTMLSelectElement
-    removeFileHistoryBtn: HTMLButtonElement
+    fileHistoryButton: HTMLButtonElement
+    fileHistoryMenu: HTMLElement
     sendIntervalInput: HTMLInputElement
     sendIntervalUnitSelect: HTMLSelectElement
     sendLoopCountInput: HTMLInputElement
@@ -100,7 +99,6 @@ export class CommandEditorPanelService {
     private readonly pythonRunJobs = new Map<number, PythonRunJob>()
     private readonly terminalLoopColors = new Map<BaseTerminalTabComponent<any>, number>()
     private lastPythonLogFilePath: string | null = null
-    private suppressFileHistoryChange = false
     private savedEditorSelection: monaco.Selection | null = null
     private symbolHighlightIds: string[] = []
     private targetTerminalTab: BaseTerminalTabComponent<any> | null = null
@@ -153,6 +151,19 @@ export class CommandEditorPanelService {
         event.preventDefault()
         event.stopImmediatePropagation()
         void action()
+    }
+    private readonly onDocumentClick = (event: MouseEvent): void => {
+        const state = this.panel
+        if (!state?.visible) {
+            return
+        }
+
+        const target = event.target as Node | null
+        if (!target || state.fileHistoryButton.contains(target) || state.fileHistoryMenu.contains(target)) {
+            return
+        }
+
+        this.closeFileHistoryMenu(state)
     }
 
     private resolveCapturedPanelHotkeyAction (event: KeyboardEvent): (() => void | Promise<void>) | null {
@@ -316,6 +327,7 @@ export class CommandEditorPanelService {
     ) {
         document.addEventListener('keydown', this.onPanelHotkeyCapture, true)
         document.addEventListener('keydown', this.onDocumentKeyCapture, true)
+        document.addEventListener('click', this.onDocumentClick, true)
         this.app.ready$.subscribe(() => {
             const filePath = this.config.store.commandEditor?.lastOpenedFile
             if (filePath && typeof filePath === 'string') {
@@ -990,7 +1002,12 @@ export class CommandEditorPanelService {
             this.panel = null
         }
 
-        if (this.panel && !('fileHistorySelect' in (this.panel as object))) {
+        if (this.panel && !('fileHistoryButton' in (this.panel as object))) {
+            this.panel.root.remove()
+            this.panel = null
+        }
+
+        if (this.panel && !('fileHistoryMenu' in (this.panel as object))) {
             this.panel.root.remove()
             this.panel = null
         }
@@ -1041,20 +1058,15 @@ export class CommandEditorPanelService {
         const filePicker = document.createElement('div')
         filePicker.className = 'command-editor-panel-file-picker'
 
-        const fileLabel = document.createElement('span')
-        fileLabel.className = 'command-editor-panel-file-label'
-        fileLabel.title = ''
-        fileLabel.textContent = 'File'
+        const fileHistoryButton = document.createElement('button')
+        fileHistoryButton.type = 'button'
+        fileHistoryButton.className = 'btn btn-sm btn-outline-secondary command-editor-panel-file-history-button'
+        fileHistoryButton.title = 'Opened file history'
 
-        const fileHistorySelect = document.createElement('select')
-        fileHistorySelect.className = 'command-editor-panel-file-history form-select form-select-sm'
-        fileHistorySelect.title = 'Opened file history'
+        const fileHistoryMenu = document.createElement('div')
+        fileHistoryMenu.className = 'command-editor-panel-file-history-menu'
 
-        const removeFileHistoryBtn = mkBtn('Remove')
-        removeFileHistoryBtn.className = 'btn btn-sm btn-outline-secondary command-editor-panel-file-remove'
-        removeFileHistoryBtn.title = 'Remove selected file from history'
-
-        filePicker.append(fileLabel, fileHistorySelect, removeFileHistoryBtn)
+        filePicker.append(fileHistoryButton, fileHistoryMenu)
 
         const sendGroup = document.createElement('div')
         sendGroup.className = 'command-editor-panel-send-group'
@@ -1159,8 +1171,7 @@ export class CommandEditorPanelService {
         openBtn.addEventListener('click', () => this.openFile())
         saveBtn.addEventListener('click', () => this.saveFile())
         closeBtn.addEventListener('click', () => this.closeFile())
-        fileHistorySelect.addEventListener('change', () => this.openSelectedHistoryFile())
-        removeFileHistoryBtn.addEventListener('click', () => this.removeSelectedHistoryFile())
+        fileHistoryButton.addEventListener('click', () => this.toggleFileHistoryMenu())
         blockRunModeBtn.addEventListener('click', () => this.toggleBlockRunMode())
         sendBtn.addEventListener('click', () => this.sendFromPanel())
         loopSendBtn.addEventListener('mousedown', (event: MouseEvent) => {
@@ -1199,9 +1210,8 @@ export class CommandEditorPanelService {
             resizeHandle,
             editorHost,
             editor,
-            fileLabel,
-            fileHistorySelect,
-            removeFileHistoryBtn,
+            fileHistoryButton,
+            fileHistoryMenu,
             sendIntervalInput,
             sendIntervalUnitSelect,
             sendLoopCountInput,
@@ -1213,7 +1223,7 @@ export class CommandEditorPanelService {
             panelSizePx: 0,
         }
         this.refreshBlockRunModeButton()
-        this.refreshFileHistorySelect(this.panel)
+        this.refreshFileHistoryDropdown(this.panel)
         this.applyPendingLastOpenedFile(this.panel)
         return this.panel
     }
@@ -1259,7 +1269,7 @@ export class CommandEditorPanelService {
         this.config.store.commandEditor.openedFileHistory = [...new Set(history)].slice(0, 50)
         this.config.save()
         if (this.panel) {
-            this.refreshFileHistorySelect(this.panel)
+            this.refreshFileHistoryDropdown(this.panel)
         }
     }
 
@@ -1276,68 +1286,83 @@ export class CommandEditorPanelService {
         this.setOpenedFileHistory(nextHistory)
     }
 
-    private openSelectedHistoryFile (): void {
-        const state = this.panel
-        if (!state || this.suppressFileHistoryChange) {
-            return
-        }
-
-        const filePath = state.fileHistorySelect.value
-        if (!filePath) {
-            return
-        }
-
+    private openHistoryFile (state: PanelState, filePath: string): void {
         if (!this.loadFileFromPath(state, filePath)) {
             this.notifications.error(this.translate.instant('File not found'))
             this.removeFileFromHistory(filePath)
+            this.closeFileHistoryMenu(state)
             return
         }
 
         this.persistLastOpenedFile(filePath)
+        this.closeFileHistoryMenu(state)
         state.editor.layout()
         state.editor.focus()
     }
 
-    private removeSelectedHistoryFile (): void {
+    private toggleFileHistoryMenu (): void {
         const state = this.panel
-        if (!state) {
+        if (!state || state.fileHistoryButton.disabled) {
             return
         }
 
-        const filePath = state.fileHistorySelect.value || state.filePath
-        if (!filePath) {
-            return
-        }
-
-        this.removeFileFromHistory(filePath)
-        state.editor.focus()
+        state.fileHistoryMenu.classList.toggle('open')
     }
 
-    private refreshFileHistorySelect (state: PanelState): void {
-        const select = state.fileHistorySelect
+    private closeFileHistoryMenu (state: PanelState): void {
+        state.fileHistoryMenu.classList.remove('open')
+    }
+
+    private refreshFileHistoryDropdown (state: PanelState): void {
+        const button = state.fileHistoryButton
+        const menu = state.fileHistoryMenu
         const currentValue = state.filePath ?? ''
         const history = this.getOpenedFileHistory()
 
-        this.suppressFileHistoryChange = true
-        select.textContent = ''
+        menu.textContent = ''
 
-        const emptyOption = document.createElement('option')
-        emptyOption.value = ''
-        emptyOption.textContent = history.length > 0 ? 'Select file history...' : 'No file history'
-        select.append(emptyOption)
-
-        for (const filePath of history) {
-            const option = document.createElement('option')
-            option.value = filePath
-            option.textContent = this.formatHistoryFileLabel(filePath)
-            option.title = filePath
-            select.append(option)
+        if (history.length === 0) {
+            button.textContent = 'No file history'
+            button.disabled = true
+            this.closeFileHistoryMenu(state)
+            return
         }
 
-        select.value = history.includes(currentValue) ? currentValue : ''
-        select.disabled = history.length === 0
-        state.removeFileHistoryBtn.disabled = history.length === 0 || !select.value
-        this.suppressFileHistoryChange = false
+        const selectedPath = history.includes(currentValue) ? currentValue : ''
+        button.textContent = selectedPath ? this.formatHistoryFileLabel(selectedPath) : 'Select file history...'
+        button.title = selectedPath || 'Opened file history'
+        button.disabled = false
+
+        for (const filePath of history) {
+            const item = document.createElement('div')
+            item.className = 'command-editor-panel-file-history-item'
+            if (filePath === selectedPath) {
+                item.classList.add('active')
+            }
+
+            const openBtn = document.createElement('button')
+            openBtn.type = 'button'
+            openBtn.className = 'command-editor-panel-file-history-open'
+            openBtn.title = filePath
+            openBtn.textContent = this.formatHistoryFileLabel(filePath)
+            openBtn.addEventListener('click', () => this.openHistoryFile(state, filePath))
+
+            const removeBtn = document.createElement('button')
+            removeBtn.type = 'button'
+            removeBtn.className = 'command-editor-panel-file-history-remove'
+            removeBtn.title = 'Remove from history'
+            removeBtn.textContent = '×'
+            removeBtn.addEventListener('click', (event: MouseEvent) => {
+                event.preventDefault()
+                event.stopPropagation()
+                this.removeFileFromHistory(filePath)
+                state.editor.focus()
+            })
+
+            item.append(openBtn, removeBtn)
+            menu.append(item)
+        }
+
     }
 
     private formatHistoryFileLabel (filePath: string): string {
@@ -1367,23 +1392,17 @@ export class CommandEditorPanelService {
         state.editor.setValue(content)
         state.filePath = filePath
         this.updateFileLabel(state)
-        this.refreshFileHistorySelect(state)
+        this.refreshFileHistoryDropdown(state)
         return true
     }
 
     private updateFileLabel (state: PanelState): void {
         if (!state.filePath) {
-            state.fileLabel.textContent = 'File'
-            state.fileLabel.title = ''
-            this.refreshFileHistorySelect(state)
+            this.refreshFileHistoryDropdown(state)
             return
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const path = require('path') as typeof import('path')
-        state.fileLabel.textContent = path.basename(state.filePath)
-        state.fileLabel.title = state.filePath
-        this.refreshFileHistorySelect(state)
+        this.refreshFileHistoryDropdown(state)
     }
 
     private getTabContentArea (): HTMLElement | null {
@@ -2031,26 +2050,92 @@ export class CommandEditorPanelService {
                 gap: 4px;
                 flex: 1;
                 min-width: 120px;
-                overflow: hidden;
+                position: relative;
             }
 
-            #${BAR_ID} .command-editor-panel-file-history {
+            #${BAR_ID} .command-editor-panel-file-history-button {
                 flex: 1;
                 min-width: 80px;
-                padding: 1px 24px 1px 6px;
+                overflow: hidden;
+                padding: 2px 24px 2px 8px;
                 font-size: 12px;
+                text-align: left;
+                text-overflow: ellipsis;
+                white-space: nowrap;
                 color: var(--bs-body-color, #adb5bd);
                 background-color: var(--bs-tertiary-bg, rgba(255, 255, 255, 0.06));
                 border-color: var(--bs-border-color, rgba(255, 255, 255, 0.15));
             }
 
-            #${BAR_ID} .command-editor-panel-file-history:focus {
+            #${BAR_ID} .command-editor-panel-file-history-button:focus {
                 color: var(--bs-body-color, #dee2e6);
                 background-color: var(--bs-body-bg, rgba(0, 0, 0, 0.25));
             }
 
-            #${BAR_ID} .command-editor-panel-file-remove {
+            #${BAR_ID} .command-editor-panel-file-history-menu {
+                display: none;
+                position: absolute;
+                z-index: 220;
+                top: calc(100% + 4px);
+                left: 0;
+                right: 0;
+                max-height: min(280px, 45vh);
+                overflow-y: auto;
+                padding: 4px;
+                border-radius: 4px;
+                background: var(--bs-body-bg, rgba(16, 18, 22, 0.98));
+                border: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.15));
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+            }
+
+            #${BAR_ID} .command-editor-panel-file-history-menu.open {
+                display: block;
+            }
+
+            #${BAR_ID} .command-editor-panel-file-history-item {
+                display: flex;
+                align-items: center;
+                min-width: 0;
+                border-radius: 3px;
+            }
+
+            #${BAR_ID} .command-editor-panel-file-history-item.active,
+            #${BAR_ID} .command-editor-panel-file-history-item:hover {
+                background: var(--bs-tertiary-bg, rgba(255, 255, 255, 0.08));
+            }
+
+            #${BAR_ID} .command-editor-panel-file-history-open {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                padding: 5px 8px;
+                border: 0;
+                background: transparent;
+                color: var(--bs-body-color, #dee2e6);
+                text-align: left;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 12px;
+                cursor: pointer;
+            }
+
+            #${BAR_ID} .command-editor-panel-file-history-remove {
                 flex: none;
+                width: 24px;
+                height: 24px;
+                padding: 0;
+                border: 0;
+                border-radius: 3px;
+                background: transparent;
+                color: var(--bs-secondary-color, #aaa);
+                font-size: 16px;
+                line-height: 1;
+                cursor: pointer;
+            }
+
+            #${BAR_ID} .command-editor-panel-file-history-remove:hover {
+                color: #fff;
+                background: var(--bs-danger, #dc3545);
             }
 
             #${BAR_ID} .command-editor-panel-interval {
@@ -2233,18 +2318,6 @@ export class CommandEditorPanelService {
                 flex: none;
                 line-height: 1;
                 padding: 0 8px;
-            }
-
-            #${BAR_ID} .command-editor-panel-file-label {
-                flex: none;
-                max-width: 120px;
-                min-width: 0;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-                font-size: 12px;
-                color: var(--bs-secondary-color, #aaa);
-                padding: 0 4px;
             }
 
             #${BAR_ID} .command-editor-panel-editor-host {
