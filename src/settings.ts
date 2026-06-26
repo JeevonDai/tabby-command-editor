@@ -38,7 +38,8 @@ const EDITOR_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Shift+Enter', name: 'Save', detail: 'Save current document' },
     { keys: 'Alt+Enter', name: 'New line', detail: 'Insert a line without sending' },
     { keys: 'Ctrl+/', name: 'Line comment', detail: 'Toggle line comment' },
-    { keys: 'Ctrl+Shift+/', name: 'Markdown comment', detail: 'Toggle markdown block comment' },
+    { keys: 'Ctrl+Shift+/', name: 'Smart comment', detail: 'Markdown: <!-- -->; Python/Bash/PowerShell code blocks: # line comment' },
+    { keys: 'Alt+A', name: 'Code block', detail: 'Toggle fenced code block around the current line or selection' },
     { keys: 'Ctrl+\\', name: 'Fold', detail: 'Toggle code folding' },
     { keys: 'Ctrl+C / Ctrl+V / Ctrl+X / Ctrl+A', name: 'Clipboard', detail: 'Copy, paste, cut, select all' },
 ]

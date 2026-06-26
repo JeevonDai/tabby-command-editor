@@ -2,7 +2,7 @@ import { Injectable, NgZone } from '@angular/core'
 import { Subscription } from 'rxjs'
 import { AppService, ConfigService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
-import { splitMarkdownCommentNewline, stripComments, toggleMarkdownComment } from '../commandComments'
+import { splitMarkdownCommentNewline, stripComments, toggleCodeFence, toggleSmartComment } from '../commandComments'
 import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandEditorTheme } from '../commandEditorLanguage'
 import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker, pruneQuickAccessProviders } from '../commandOutline'
 import {
@@ -1712,7 +1712,12 @@ export class CommandEditorPanelService {
         )
         editor.addCommand(
             monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Slash,
-            () => toggleMarkdownComment(editor),
+            () => toggleSmartComment(editor, this.getCodeBlockRunSettings()),
+            editorContext,
+        )
+        editor.addCommand(
+            monaco.KeyMod.Alt | monaco.KeyCode.KeyA,
+            () => toggleCodeFence(editor),
             editorContext,
         )
         editor.addCommand(

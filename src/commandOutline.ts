@@ -114,8 +114,21 @@ function removeCommandPaletteContextMenuItem (): void {
 export function parseMarkdownHeadings (text: string): MarkdownHeading[] {
     const headings: MarkdownHeading[] = []
     const lines = text.split(/\r?\n/)
+    let fence: MarkdownFence | null = null
 
     for (let i = 0; i < lines.length; i++) {
+        if (fence) {
+            if (isFenceEnd(lines[i], fence)) {
+                fence = null
+            }
+            continue
+        }
+
+        fence = parseFenceStart(lines[i], i + 1)
+        if (fence) {
+            continue
+        }
+
         const match = lines[i].match(MARKDOWN_HEADING_RE)
         if (!match) {
             continue

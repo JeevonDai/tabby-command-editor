@@ -1,9 +1,29 @@
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
+import type { CodeBlockRunSettings } from './codeBlockRunConfig'
 
 const MARKDOWN_HEADING_RE = /^\s*(#{1,6})\s+(.+)$/
+const FENCE_START_RE = /^\s*(`{3,}|~{3,})(?:\s*([^`~\s]+))?.*$/
 
 type MarkdownCommentWrap = 'single' | 'multiline-block' | 'multiline-inline'
+
+interface MarkdownFence {
+    marker: '`' | '~'
+    length: number
+    language?: string
+    startLine?: number
+}
+
+interface ScriptFence {
+    language: string
+    startLine: number
+    endLine: number
+}
+
+interface CodeFence {
+    startLine: number
+    endLine: number | null
+}
 
 /** Markdown-style section heading used for command grouping (not sent to terminal). */
 export function isMarkdownHeadingLine (line: string): boolean {
@@ -63,11 +83,263 @@ export function stripLineComment (line: string): string {
 
 /** Prepare editor text for sending: drop block/line comments and markdown headings. */
 export function stripComments (text: string): string {
-    return removeBlockComments(text)
-        .split('\n')
-        .filter(line => !isMarkdownHeadingLine(line))
-        .map(stripLineComment)
-        .join('\n')
+    const lines: string[] = []
+    let fence: MarkdownFence | null = null
+
+    for (const line of removeBlockComments(text).split('\n')) {
+        if (fence) {
+            lines.push(line)
+            if (isFenceEnd(line, fence)) {
+                fence = null
+            }
+            continue
+        }
+
+        fence = parseFenceStart(line)
+        if (fence) {
+            lines.push(line)
+            continue
+        }
+
+        if (!isMarkdownHeadingLine(line)) {
+            lines.push(stripLineComment(line))
+        }
+    }
+
+    return lines.join('\n')
+}
+
+function parseFenceStart (line: string): MarkdownFence | null {
+    const match = line.match(FENCE_START_RE)
+    if (!match) {
+        return null
+    }
+    return {
+        marker: match[1][0] as '`' | '~',
+        length: match[1].length,
+        language: match[2]?.toLowerCase(),
+    }
+}
+
+function isFenceEnd (line: string, fence: MarkdownFence): boolean {
+    const marker = fence.marker === '`' ? '`' : '~'
+    return new RegExp(`^\\s*(${marker}{${fence.length},})\\s*$`).test(line)
+}
+
+function findScriptFenceForRange (
+    model: monaco.editor.ITextModel,
+    startLine: number,
+    endLine: number,
+    settings: CodeBlockRunSettings,
+): ScriptFence | null {
+    let fence: MarkdownFence | null = null
+
+    for (let line = 1; line <= model.getLineCount(); line++) {
+        const content = model.getLineContent(line)
+
+        if (fence) {
+            if (isFenceEnd(content, fence)) {
+                if (
+                    fence.startLine !== undefined
+                    && fence.language
+                    && startLine > fence.startLine
+                    && endLine < line
+                    && settings.languageAliases[fence.language]
+                ) {
+                    return {
+                        language: settings.languageAliases[fence.language],
+                        startLine: fence.startLine,
+                        endLine: line,
+                    }
+                }
+                fence = null
+            }
+            continue
+        }
+
+        fence = parseFenceStart(content)
+        if (fence) {
+            fence.startLine = line
+        }
+    }
+
+    if (
+        fence?.startLine !== undefined
+        && fence.language
+        && startLine > fence.startLine
+        && settings.languageAliases[fence.language]
+    ) {
+        return {
+            language: settings.languageAliases[fence.language],
+            startLine: fence.startLine,
+            endLine: model.getLineCount(),
+        }
+    }
+
+    return null
+}
+
+function findCodeFenceForRange (
+    model: monaco.editor.ITextModel,
+    startLine: number,
+    endLine: number,
+): CodeFence | null {
+    let fence: MarkdownFence | null = null
+
+    for (let line = 1; line <= model.getLineCount(); line++) {
+        const content = model.getLineContent(line)
+
+        if (fence) {
+            if (isFenceEnd(content, fence)) {
+                if (
+                    fence.startLine !== undefined
+                    && startLine >= fence.startLine
+                    && endLine <= line
+                ) {
+                    return {
+                        startLine: fence.startLine,
+                        endLine: line,
+                    }
+                }
+                fence = null
+            }
+            continue
+        }
+
+        fence = parseFenceStart(content)
+        if (fence) {
+            fence.startLine = line
+        }
+    }
+
+    if (
+        fence?.startLine !== undefined
+        && startLine >= fence.startLine
+        && endLine <= model.getLineCount()
+    ) {
+        return {
+            startLine: fence.startLine,
+            endLine: null,
+        }
+    }
+
+    return null
+}
+
+function getSelectedLineRange (selection: monaco.Selection): { startLine: number; endLine: number } {
+    let endLine = selection.endLineNumber
+    if (!selection.isEmpty() && selection.endColumn === 1 && endLine > selection.startLineNumber) {
+        endLine--
+    }
+    return {
+        startLine: selection.startLineNumber,
+        endLine,
+    }
+}
+
+function toggleHashComment (
+    editor: monaco.editor.IStandaloneCodeEditor,
+    model: monaco.editor.ITextModel,
+    selection: monaco.Selection,
+): void {
+    const { startLine, endLine } = getSelectedLineRange(selection)
+    const lines = Array.from(
+        { length: endLine - startLine + 1 },
+        (_, index) => model.getLineContent(startLine + index),
+    )
+    const nonBlankLines = lines.filter(line => line.trim().length > 0)
+    const shouldUncomment = nonBlankLines.length > 0
+        && nonBlankLines.every(line => /^\s*# ?/.test(line))
+
+    const newText = lines.map(line => {
+        if (!line.trim()) {
+            return line
+        }
+        if (shouldUncomment) {
+            return line.replace(/^(\s*)# ?/, '$1')
+        }
+        return line.replace(/^(\s*)/, '$1# ')
+    }).join('\n')
+
+    editor.executeEdits('toggle-hash-comment', [{
+        range: new monaco.Range(startLine, 1, endLine, model.getLineMaxColumn(endLine)),
+        text: newText,
+        forceMoveMarkers: true,
+    }])
+
+    editor.setSelection(selection)
+}
+
+/** Toggle the appropriate comment style for the current Markdown/code-block context. */
+export function toggleSmartComment (
+    editor: monaco.editor.IStandaloneCodeEditor,
+    settings: CodeBlockRunSettings,
+): void {
+    const selection = editor.getSelection()
+    const model = editor.getModel()
+    if (!selection || !model) {
+        return
+    }
+
+    const { startLine, endLine } = getSelectedLineRange(selection)
+    const scriptFence = findScriptFenceForRange(model, startLine, endLine, settings)
+    if (scriptFence) {
+        toggleHashComment(editor, model, selection)
+        return
+    }
+
+    toggleMarkdownComment(editor)
+}
+
+/** Toggle fenced code block markers around the current line/selection. */
+export function toggleCodeFence (editor: monaco.editor.IStandaloneCodeEditor): void {
+    const selection = editor.getSelection()
+    const model = editor.getModel()
+    if (!selection || !model) {
+        return
+    }
+
+    const { startLine, endLine } = getSelectedLineRange(selection)
+    const fence = findCodeFenceForRange(model, startLine, endLine)
+    if (fence) {
+        const contentEndLine = (fence.endLine ?? model.getLineCount()) - 1
+        const innerText = contentEndLine >= fence.startLine + 1
+            ? model.getValueInRange(new monaco.Range(
+                fence.startLine + 1,
+                1,
+                contentEndLine,
+                model.getLineMaxColumn(contentEndLine),
+            ))
+            : ''
+
+        const replaceEndLine = fence.endLine ?? model.getLineCount()
+        editor.executeEdits('toggle-code-fence', [{
+            range: new monaco.Range(fence.startLine, 1, replaceEndLine, model.getLineMaxColumn(replaceEndLine)),
+            text: innerText,
+            forceMoveMarkers: true,
+        }])
+        return
+    }
+
+    const lines = Array.from(
+        { length: endLine - startLine + 1 },
+        (_, index) => model.getLineContent(startLine + index),
+    )
+    const indent = lines[0]?.match(/^\s*/)?.[0] ?? ''
+    const newText = `${indent}\`\`\`\n${lines.join('\n')}\n${indent}\`\`\``
+
+    editor.executeEdits('toggle-code-fence', [{
+        range: new monaco.Range(startLine, 1, endLine, model.getLineMaxColumn(endLine)),
+        text: newText,
+        forceMoveMarkers: true,
+    }])
+
+    editor.setSelection(new monaco.Selection(
+        startLine + 1,
+        selection.startColumn,
+        endLine + 1,
+        selection.isEmpty() ? selection.startColumn : selection.endColumn,
+    ))
 }
 
 function getMarkdownCommentWrap (lines: string[]): MarkdownCommentWrap | null {
