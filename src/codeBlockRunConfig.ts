@@ -43,13 +43,13 @@ export const DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_WINDOWS: ScriptLanguageMap = {
 }
 
 export const DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_UNIX: ScriptLanguageMap = {
-    python: 'python3 -u -',
+    python: 'python -u -',
     bash: 'bash -s',
     powershell: 'pwsh -NoProfile -NonInteractive -Command -',
 }
 
 export const DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_WINDOWS: ScriptLanguageMap = {
-    python: 'py -3 -u -',
+    python: 'python -u -',
     bash: 'wsl bash -s',
     powershell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command -',
 }

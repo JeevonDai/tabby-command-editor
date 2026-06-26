@@ -244,7 +244,7 @@ export function runCodeBlock (
         })
 
         child.once('error', error => {
-            finish(() => reject(error))
+            finish(() => reject(formatSpawnError(error, command, scriptLanguage)))
         })
 
         child.once('close', exitCode => {
@@ -290,6 +290,13 @@ export function runCodeBlock (
             activeChild?.kill()
         },
     }
+}
+
+function formatSpawnError (error: Error & { code?: string }, command: string, language: ScriptLanguage): Error {
+    if (error.code === 'ENOENT') {
+        return new Error(`${language} runner not found: ${command}`)
+    }
+    return error
 }
 
 function normalizeCode (language: ScriptLanguage, code: string): string {
