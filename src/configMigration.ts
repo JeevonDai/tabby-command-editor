@@ -69,6 +69,15 @@ export class CommandEditorConfigMigration {
             changed = true
         }
 
+        const terminalCommands = commandEditor?.['codeBlockTerminalCommands'] as Record<string, unknown> | undefined
+        if (terminalCommands && (
+            terminalCommands.python === 'python3 {file}'
+            || terminalCommands.python === 'py -3 {file}'
+        )) {
+            terminalCommands.python = 'python {file}'
+            changed = true
+        }
+
         if (commandEditor?.['codeBlockTerminalFileCommands'] || commandEditor?.['codeBlockBackgroundRunners']) {
             const resolved = resolveCodeBlockRunSettings(commandEditor as CommandEditorCodeBlockConfig)
             commandEditor.codeBlockTerminalCommands = resolved.terminalCommands

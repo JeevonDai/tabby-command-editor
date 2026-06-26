@@ -31,13 +31,13 @@ export const DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES: Record<string, ScriptLanguage>
 }
 
 export const DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_UNIX: ScriptLanguageMap = {
-    python: 'python3 {file}',
+    python: 'python {file}',
     bash: 'bash {file}',
     powershell: 'pwsh -NoProfile -ExecutionPolicy Bypass -File {file}',
 }
 
 export const DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_WINDOWS: ScriptLanguageMap = {
-    python: 'py -3 {file}',
+    python: 'python {file}',
     bash: 'wsl bash {file}',
     powershell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {file}',
 }
