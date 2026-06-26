@@ -1,6 +1,6 @@
 import { Injectable, NgZone } from '@angular/core'
 import { Subscription } from 'rxjs'
-import { AppService, ConfigService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
+import { AppService, ConfigService, LocaleService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
 import { splitMarkdownCommentNewline, stripComments, toggleCodeFence, toggleSmartComment } from '../commandComments'
 import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandEditorTheme } from '../commandEditorLanguage'
@@ -13,6 +13,7 @@ import {
     runCodeBlock,
 } from '../pythonCodeBlockRunner'
 import { CodeBlockRunSettings, resolveCodeBlockRunSettings } from '../codeBlockRunConfig'
+import { t } from '../locale'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
 
@@ -344,6 +345,7 @@ export class CommandEditorPanelService {
         private platform: PlatformService,
         private notifications: NotificationsService,
         private translate: TranslateService,
+        private locale: LocaleService,
         private zone: NgZone,
     ) {
         document.addEventListener('keydown', this.onPanelHotkeyCapture, true)
@@ -418,7 +420,7 @@ export class CommandEditorPanelService {
 
     async togglePanel (terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
         if (!terminal && !this.getActiveTerminalTab()) {
-            this.notifications.info(this.translate.instant('No active terminal'))
+            this.notifications.info(t(this.translate, this.locale, 'No active terminal'))
             return
         }
 
@@ -431,7 +433,7 @@ export class CommandEditorPanelService {
             this.showPanel(state, terminal ?? this.getActiveTerminalTab())
         } catch (err) {
             console.error('[CommandEditorPanel] Failed to toggle panel:', err)
-            this.notifications.error(this.translate.instant('Failed to open command editor panel'))
+            this.notifications.error(t(this.translate, this.locale, 'Failed to open command editor panel'))
         }
     }
 
@@ -488,7 +490,7 @@ export class CommandEditorPanelService {
         state.filePath = filePath
         this.persistLastOpenedFile(filePath)
         this.updateFileLabel(state)
-        this.notifications.notice(this.translate.instant('File saved'))
+        this.notifications.notice(t(this.translate, this.locale, 'File saved'))
     }
 
     async reloadFile (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
@@ -499,17 +501,17 @@ export class CommandEditorPanelService {
 
         const filePath = state.filePath ?? this.config.store.commandEditor?.lastOpenedFile ?? null
         if (!filePath || typeof filePath !== 'string') {
-            this.notifications.info(this.translate.instant('No file open'))
+            this.notifications.info(t(this.translate, this.locale, 'No file open'))
             return
         }
 
         if (!this.loadFileFromPath(state, filePath)) {
-            this.notifications.error(this.translate.instant('File not found'))
+            this.notifications.error(t(this.translate, this.locale, 'File not found'))
             return
         }
 
         this.persistLastOpenedFile(filePath)
-        this.notifications.notice(this.translate.instant('File reloaded'))
+        this.notifications.notice(t(this.translate, this.locale, 'File reloaded'))
         state.editor.layout()
         state.editor.focus()
     }
@@ -519,19 +521,19 @@ export class CommandEditorPanelService {
         const terminalTab = _terminal ?? this.resolveTerminalForSend()
         if (!state?.visible || !terminalTab) {
             if (!terminalTab) {
-                this.notifications.info(this.translate.instant('No active terminal'))
+                this.notifications.info(t(this.translate, this.locale, 'No active terminal'))
             }
             return
         }
 
         if (findRunnableCodeBlockAtCursor(state.editor, this.getCodeBlockRunSettings())) {
-            this.notifications.info('Send is disabled inside code blocks — use Loop or Run (F9)')
+            this.notifications.info(t(this.translate, this.locale, 'Send is disabled inside code blocks — use Loop or Run (F9)'))
             return
         }
 
         const text = stripComments(this.getTextToSend(state.editor, forceLine))
         if (!text.trim()) {
-            this.notifications.info(this.translate.instant('Nothing to send'))
+            this.notifications.info(t(this.translate, this.locale, 'Nothing to send'))
             return
         }
 
@@ -560,12 +562,12 @@ export class CommandEditorPanelService {
 
         const terminalTab = _terminal ?? this.resolveTerminalForSend()
         if (!terminalTab) {
-            this.notifications.info(this.translate.instant('No active terminal'))
+            this.notifications.info(t(this.translate, this.locale, 'No active terminal'))
             return
         }
 
         if (!terminalTab.session) {
-            this.notifications.error(this.translate.instant('Terminal session not ready'))
+            this.notifications.error(t(this.translate, this.locale, 'Terminal session not ready'))
             return
         }
 
@@ -590,7 +592,7 @@ export class CommandEditorPanelService {
                 this.sendLineToTerminal(terminalTab, lineText)
             } catch (error) {
                 console.error('[CommandEditorPanel] Line send failed:', error)
-                this.notifications.error(this.translate.instant('Loop send failed'))
+                this.notifications.error(t(this.translate, this.locale, 'Loop send failed'))
                 return
             }
         }
@@ -608,7 +610,7 @@ export class CommandEditorPanelService {
         const terminal = this.resolveTerminalForSend()
         if (!state?.visible || !terminal) {
             if (!terminal) {
-                this.notifications.info(this.translate.instant('No active terminal'))
+                this.notifications.info(t(this.translate, this.locale, 'No active terminal'))
             }
             return
         }
@@ -617,12 +619,14 @@ export class CommandEditorPanelService {
         const block = findRunnableCodeBlockAtCursor(state.editor, runSettings)
         if (!block) {
             this.notifications.info(
-                `Place the cursor inside a runnable code block (${this.getRunnableLanguageFamilies().join(', ')})`,
+                t(this.translate, this.locale, 'Place the cursor inside a runnable code block ({languages})', {
+                    languages: this.getRunnableLanguageFamilies().join(', '),
+                }),
             )
             return
         }
         if (!block.code.trim()) {
-            this.notifications.info('Code block is empty')
+            this.notifications.info(t(this.translate, this.locale, 'Code block is empty'))
             return
         }
 
@@ -682,11 +686,17 @@ export class CommandEditorPanelService {
                 return
             }
             if (sentCount === 0) {
-                this.notifications.info(`${terminalLabel}: ${languageLabel} completed without output`)
+                this.notifications.info(t(this.translate, this.locale, '{terminalLabel}: {languageLabel} completed without output', {
+                    terminalLabel,
+                    languageLabel,
+                }))
                 return
             }
 
-            this.notifications.notice(`${terminalLabel}: ${languageLabel} output sent to terminal`)
+            this.notifications.notice(t(this.translate, this.locale, '{terminalLabel}: {languageLabel} output sent to terminal', {
+                terminalLabel,
+                languageLabel,
+            }))
         } catch (error) {
             if (!this.pythonRunJobs.has(jobId)) {
                 return
@@ -710,14 +720,16 @@ export class CommandEditorPanelService {
         state: PanelState,
     ): Promise<void> {
         if (!terminal.session) {
-            this.notifications.error(this.translate.instant('Terminal session not ready'))
+            this.notifications.error(t(this.translate, this.locale, 'Terminal session not ready'))
             return
         }
 
         const runSettings = this.getCodeBlockRunSettings()
         const scriptLanguage = resolveScriptLanguage(block.language, runSettings)
         if (!scriptLanguage) {
-            this.notifications.info(`Unsupported code block language: ${block.language}`)
+            this.notifications.info(t(this.translate, this.locale, 'Unsupported code block language: {language}', {
+                language: block.language,
+            }))
             return
         }
 
@@ -728,7 +740,11 @@ export class CommandEditorPanelService {
         try {
             this.sendLineToTerminal(terminal, payload.command)
             this.notifications.notice(
-                `${terminalLabel}: ${languageLabel} script sent to terminal (${this.getBlockRunModeLabel()})`,
+                t(this.translate, this.locale, '{terminalLabel}: {languageLabel} script sent to terminal ({mode})', {
+                    terminalLabel,
+                    languageLabel,
+                    mode: this.getBlockRunModeLabel(),
+                }),
             )
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to run script in terminal'
@@ -755,7 +771,10 @@ export class CommandEditorPanelService {
             this.panel.editor.layout()
         }
         if (cancel) {
-            this.notifications.info(`${job.terminalLabel}: ${job.language} execution stopped`)
+            this.notifications.info(t(this.translate, this.locale, '{terminalLabel}: {language} execution stopped', {
+                terminalLabel: job.terminalLabel,
+                language: job.language,
+            }))
         }
     }
 
@@ -772,26 +791,26 @@ export class CommandEditorPanelService {
         }
 
         if (!state.batchStatusContainer || !state.sendIntervalInput || !state.sendLoopCountInput) {
-            this.notifications.error(this.translate.instant('Loop send failed'))
+            this.notifications.error(t(this.translate, this.locale, 'Loop send failed'))
             console.warn('[CommandEditorPanel] Panel UI outdated — close and reopen the panel (Ctrl+E)')
             return
         }
 
         const terminalTab = _terminal ?? this.getActiveTerminalTab()
         if (!terminalTab) {
-            this.notifications.info(this.translate.instant('No active terminal'))
+            this.notifications.info(t(this.translate, this.locale, 'No active terminal'))
             return
         }
 
         if (!terminalTab.session) {
-            this.notifications.error(this.translate.instant('Terminal session not ready'))
+            this.notifications.error(t(this.translate, this.locale, 'Terminal session not ready'))
             console.warn('[CommandEditorPanel] Loop send blocked: terminal.session is null')
             return
         }
 
         const lines = this.getLoopSendLines(state.editor)
         if (lines.length === 0) {
-            this.notifications.info(this.translate.instant('Nothing to send'))
+            this.notifications.info(t(this.translate, this.locale, 'Nothing to send'))
             return
         }
 
@@ -861,7 +880,7 @@ export class CommandEditorPanelService {
 
             this.cancelLoopJob(jobId)
             if (sentCount > 0) {
-                this.notifications.notice(`${terminalLabel}: ${this.translate.instant('Lines sent')} (${sentCount})`)
+                this.notifications.notice(`${terminalLabel}: ${t(this.translate, this.locale, 'Lines sent')} (${sentCount})`)
             }
         }
 
@@ -902,7 +921,7 @@ export class CommandEditorPanelService {
             } catch (err) {
                 console.error('[CommandEditorPanel] Loop send failed:', err)
                 this.cancelLoopJob(jobId)
-                this.notifications.error(this.translate.instant('Loop send failed'))
+                this.notifications.error(t(this.translate, this.locale, 'Loop send failed'))
                 return
             }
 
@@ -1310,7 +1329,7 @@ export class CommandEditorPanelService {
 
     private openHistoryFile (state: PanelState, filePath: string): void {
         if (!this.loadFileFromPath(state, filePath)) {
-            this.notifications.error(this.translate.instant('File not found'))
+            this.notifications.error(t(this.translate, this.locale, 'File not found'))
             this.removeFileFromHistory(filePath)
             this.closeFileHistoryMenu(state)
             return
@@ -3052,8 +3071,8 @@ export class CommandEditorPanelService {
 
     private getBlockRunModeHint (): string {
         return this.getBlockRunMode() === 'terminal'
-            ? 'TF — send code block file to the active terminal'
-            : 'BG — run in background; stdout→terminal, stderr→log file'
+            ? t(this.translate, this.locale, 'TF — send code block file to the active terminal')
+            : t(this.translate, this.locale, 'BG — run in background; stdout→terminal, stderr→log file')
     }
 
     private refreshBlockRunModeButton (): void {
@@ -3067,8 +3086,8 @@ export class CommandEditorPanelService {
         btn.classList.add(mode === 'terminal' ? 'mode-terminal' : 'mode-background')
         btn.textContent = this.getBlockRunModeLabel()
         btn.title = mode === 'terminal'
-            ? 'TF — send code block file to the active terminal (F10; click to switch to BG)'
-            : 'BG — run in background; stdout→terminal, stderr→log file (F10; click to switch to TF)'
+            ? t(this.translate, this.locale, 'TF — send code block file to the active terminal (F10; click to switch to BG)')
+            : t(this.translate, this.locale, 'BG — run in background; stdout→terminal, stderr→log file (F10; click to switch to TF)')
         btn.setAttribute('aria-pressed', mode === 'background' ? 'true' : 'false')
         btn.setAttribute('aria-label', this.getBlockRunModeHint())
     }
@@ -3082,8 +3101,8 @@ export class CommandEditorPanelService {
             void this.config.save()
         }
         this.notifications.notice(nextMode === 'terminal'
-            ? 'TF — send code block file to the active terminal'
-            : 'BG — run in background; stdout→terminal, stderr→log file')
+            ? t(this.translate, this.locale, 'TF — send code block file to the active terminal')
+            : t(this.translate, this.locale, 'BG — run in background; stdout→terminal, stderr→log file'))
         this.refreshBlockRunModeButton()
     }
 
@@ -3096,7 +3115,7 @@ export class CommandEditorPanelService {
             this.lastPythonLogFilePath = job.logFilePath
         } catch (error) {
             console.error('[CommandEditor] Failed to write Python log:', error)
-            this.notifications.error('Failed to write Python log file')
+            this.notifications.error(t(this.translate, this.locale, 'Failed to write Python log file'))
         }
     }
 
@@ -3154,7 +3173,7 @@ export class CommandEditorPanelService {
             }
         } catch (error) {
             console.error('[CommandEditor] Failed to open Python log folder:', error)
-            this.notifications.error('Failed to open Python log folder')
+            this.notifications.error(t(this.translate, this.locale, 'Failed to open Python log folder'))
         }
     }
 

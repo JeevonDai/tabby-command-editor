@@ -1,7 +1,8 @@
-import { Component, Injectable } from '@angular/core'
+import { ChangeDetectorRef, Component, Injectable } from '@angular/core'
 import { ConfigService, LocaleService, TranslateService } from 'tabby-core'
 import { SettingsTabProvider } from 'tabby-settings'
 import { formatCodeBlockRunConfigForDisplay } from './codeBlockRunConfig'
+import { t } from './locale'
 
 interface ShortcutRow {
     name: string
@@ -64,15 +65,15 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
 
     constructor (
         private translate: TranslateService,
-        locale: LocaleService,
+        private locale: LocaleService,
     ) {
         super()
         this.refreshTitle()
-        locale.localeChanged$.subscribe(() => this.refreshTitle())
+        this.locale.localeChanged$.subscribe(() => this.refreshTitle())
     }
 
     private refreshTitle (): void {
-        this.title = this.translate.instant('Command editor')
+        this.title = t(this.translate, this.locale, 'Command editor')
     }
 
     getComponentType (): any {
@@ -91,7 +92,7 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                     <div class="command-editor-shortcut-row header">
                         <span>{{ labels.action }}</span>
                         <span>{{ labels.currentBinding }}</span>
-                        <span>Hotkey ID</span>
+                        <span>{{ labels.hotkeyId }}</span>
                     </div>
                     <div class="command-editor-shortcut-row" *ngFor="let shortcut of globalShortcuts">
                         <span>{{ shortcut.name }}</span>
@@ -245,38 +246,49 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
     `],
 })
 export class CommandEditorSettingsTabComponent {
-    readonly labels: Record<string, string>
-    readonly editorShortcuts: ShortcutRow[]
-    readonly findShortcuts: ShortcutRow[]
+    labels: Record<string, string> = {}
+    editorShortcuts: ShortcutRow[] = []
+    findShortcuts: ShortcutRow[] = []
 
     constructor (
         private config: ConfigService,
         private translate: TranslateService,
+        private locale: LocaleService,
+        private cdr: ChangeDetectorRef,
     ) {
+        this.refreshLocalizedContent()
+        this.locale.localeChanged$.subscribe(() => {
+            this.refreshLocalizedContent()
+            this.cdr.markForCheck()
+        })
+    }
+
+    private refreshLocalizedContent (): void {
         this.labels = {
-            globalHotkeys: translate.instant('Global hotkeys'),
-            globalHotkeysDesc: translate.instant('These are Tabby-level hotkeys registered by the command editor. Edit their bindings in Settings -> Hotkeys.'),
-            action: translate.instant('Action'),
-            currentBinding: translate.instant('Current binding'),
-            editorFocusKeys: translate.instant('Editor focus keys'),
-            editorFocusKeysDesc: translate.instant('These keys are handled only while the command editor itself is focused.'),
-            searchFocusKeys: translate.instant('Search focus keys'),
-            searchFocusKeysDesc: translate.instant('These keys keep sending and running available while Monaco search is open.'),
-            codeBlockRun: translate.instant('Code block run commands'),
-            codeBlockRunDesc: translate.instant('Customize python/bash/powershell under commandEditor in config.yaml (keys: python, bash, powershell). Platform defaults apply on Windows vs macOS/Linux. Below is the effective merged configuration.'),
-            codeBlockAliases: translate.instant('Markdown fence tag → interpreter family (python / bash / powershell)'),
-            codeBlockBg: translate.instant('BG mode: spawn command string; script body is written to stdin'),
-            codeBlockTf: translate.instant('TF mode: command sent to terminal; {file} = quoted temp script path'),
+            globalHotkeys: t(this.translate, this.locale, 'Global hotkeys'),
+            globalHotkeysDesc: t(this.translate, this.locale, 'These are Tabby-level hotkeys registered by the command editor. Edit their bindings in Settings -> Hotkeys.'),
+            action: t(this.translate, this.locale, 'Action'),
+            currentBinding: t(this.translate, this.locale, 'Current binding'),
+            hotkeyId: t(this.translate, this.locale, 'Hotkey ID'),
+            editorFocusKeys: t(this.translate, this.locale, 'Editor focus keys'),
+            editorFocusKeysDesc: t(this.translate, this.locale, 'These keys are handled only while the command editor itself is focused.'),
+            searchFocusKeys: t(this.translate, this.locale, 'Search focus keys'),
+            searchFocusKeysDesc: t(this.translate, this.locale, 'These keys keep sending and running available while Monaco search is open.'),
+            codeBlockRun: t(this.translate, this.locale, 'Code block run commands'),
+            codeBlockRunDesc: t(this.translate, this.locale, 'Customize python/bash/powershell under commandEditor in config.yaml (keys: python, bash, powershell). Platform defaults apply on Windows vs macOS/Linux. Below is the effective merged configuration.'),
+            codeBlockAliases: t(this.translate, this.locale, 'Markdown fence tag → interpreter family (python / bash / powershell)'),
+            codeBlockBg: t(this.translate, this.locale, 'BG mode: spawn command string; script body is written to stdin'),
+            codeBlockTf: t(this.translate, this.locale, 'TF mode: command sent to terminal; {file} = quoted temp script path'),
         }
         this.editorShortcuts = EDITOR_SHORTCUTS.map(shortcut => ({
             ...shortcut,
-            name: translate.instant(shortcut.name),
-            detail: translate.instant(shortcut.detail),
+            name: t(this.translate, this.locale, shortcut.name),
+            detail: t(this.translate, this.locale, shortcut.detail),
         }))
         this.findShortcuts = FIND_SHORTCUTS.map(shortcut => ({
             ...shortcut,
-            name: translate.instant(shortcut.name),
-            detail: translate.instant(shortcut.detail),
+            name: t(this.translate, this.locale, shortcut.name),
+            detail: t(this.translate, this.locale, shortcut.detail),
         }))
     }
 
@@ -284,7 +296,7 @@ export class CommandEditorSettingsTabComponent {
         const hotkeys = this.config.store.hotkeys as Record<string, string[] | string[][] | undefined> | undefined
         return GLOBAL_SHORTCUTS.map(shortcut => ({
             ...shortcut,
-            name: this.translate.instant(shortcut.name),
+            name: t(this.translate, this.locale, shortcut.name),
             keys: this.formatHotkeys(hotkeys?.[shortcut.id]),
         }))
     }
@@ -295,7 +307,7 @@ export class CommandEditorSettingsTabComponent {
 
     private formatHotkeys (value: string[] | string[][] | undefined): string {
         if (!value?.length) {
-            return 'Unassigned'
+            return t(this.translate, this.locale, 'Unassigned')
         }
 
         if (typeof value[0] === 'string') {
