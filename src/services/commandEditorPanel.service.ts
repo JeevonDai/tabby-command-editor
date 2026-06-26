@@ -238,6 +238,12 @@ export class CommandEditorPanelService {
                 void this.loopOrRun()
                 return
             }
+            if (event.key === 'F6') {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                this.cancelLoopSend()
+                return
+            }
             if (event.key === 'F10') {
                 event.preventDefault()
                 event.stopImmediatePropagation()
@@ -749,7 +755,7 @@ export class CommandEditorPanelService {
             this.panel.editor.layout()
         }
         if (cancel) {
-            this.notifications.info(`${job.terminalLabel}: Python execution stopped`)
+            this.notifications.info(`${job.terminalLabel}: ${job.language} execution stopped`)
         }
     }
 
@@ -808,11 +814,12 @@ export class CommandEditorPanelService {
     }
 
     cancelLoopSend (): void {
-        if (this.loopSendJobs.size === 0) {
+        if (this.loopSendJobs.size === 0 && this.pythonRunJobs.size === 0) {
             return
         }
 
         this.cancelAllLoopJobs()
+        this.cancelAllPythonRuns()
     }
 
     private startLoopSendJob (
@@ -1142,7 +1149,7 @@ export class CommandEditorPanelService {
         blockRunModeBtn.className = 'btn btn-sm command-editor-block-run-mode-btn'
 
         const loopSendBtn = mkBtn('Loop or Run')
-        loopSendBtn.title = 'F9 — Loop or Run; comments stripped; code block: run; line: send and move down (blank/comment-only: move only); selection: loop (interval × count)'
+        loopSendBtn.title = 'F9 — Loop or Run; F6 stops loops and background scripts; comments stripped; code block: run; line: send and move down (blank/comment-only: move only); selection: loop (interval × count)'
 
         const sendBtn = mkBtn('Send', true)
         sendBtn.title = 'Enter/F8 — comments stripped; line or selection; send immediately; code block: disabled (use Loop or Run / F9)'
@@ -1701,6 +1708,7 @@ export class CommandEditorPanelService {
         const editorContext = 'editorTextFocus && !findWidgetVisible && !suggestWidgetVisible'
 
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
+        editor.addCommand(monaco.KeyCode.F6, () => this.cancelLoopSend(), editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
         editor.addCommand(monaco.KeyCode.F9, () => void this.loopOrRun(), editorContext)
         editor.addCommand(monaco.KeyCode.F10, () => this.toggleBlockRunMode(), editorContext)

@@ -64,6 +64,11 @@ export class CommandEditorConfigMigration {
             changed = true
         }
 
+        if (hotkeys && (!hotkeys['cancel-command-editor-loop'] || hotkeys['cancel-command-editor-loop'].length === 0)) {
+            hotkeys['cancel-command-editor-loop'] = ['F6']
+            changed = true
+        }
+
         if (commandEditor?.['codeBlockTerminalFileCommands'] || commandEditor?.['codeBlockBackgroundRunners']) {
             const resolved = resolveCodeBlockRunSettings(commandEditor as CommandEditorCodeBlockConfig)
             commandEditor.codeBlockTerminalCommands = resolved.terminalCommands

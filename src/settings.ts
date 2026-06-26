@@ -32,6 +32,7 @@ const GLOBAL_SHORTCUTS: Array<{ id: string; name: string }> = [
 
 const EDITOR_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Enter / F8', name: 'Send', detail: 'Send current line or selection (blocked inside code blocks)' },
+    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends and background scripts' },
     { keys: 'F7', name: 'Go to next highlighted symbol', detail: 'Monaco built-in (plugin does not bind F7)' },
     { keys: 'F9', name: 'Loop or Run', detail: 'Comments stripped; code block: run (terminal file or background per F10); line: send and move down (comment-only/blank: move only); selection: loop (interval × count)' },
     { keys: 'F10', name: 'Block run mode', detail: 'Toggle TF (send file to terminal) / BG (background run, stderr→log)' },
@@ -47,6 +48,7 @@ const EDITOR_SHORTCUTS: ShortcutRow[] = [
 const FIND_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Enter / F7', name: 'Find next', detail: 'Next search match while find widget is open' },
     { keys: 'Shift+Enter / Shift+F7', name: 'Find previous', detail: 'Previous search match while find widget is open' },
+    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends and background scripts' },
     { keys: 'F8 / Ctrl+Enter', name: 'Send', detail: 'Send current line while search is open (blocked inside code blocks)' },
     { keys: 'F9 / Ctrl+Shift+Enter', name: 'Loop or Run', detail: 'Same as editor F9; in find mode sends match line and moves to the next line' },
     { keys: 'F10', name: 'Block run mode', detail: 'Toggle TF (send file to terminal) / BG (background run, stderr→log)' },
