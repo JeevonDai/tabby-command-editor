@@ -14,12 +14,6 @@ interface MarkdownFence {
     startLine?: number
 }
 
-interface ScriptFence {
-    language: string
-    startLine: number
-    endLine: number
-}
-
 interface CodeFence {
     startLine: number
     endLine: number | null
@@ -126,59 +120,6 @@ function isFenceEnd (line: string, fence: MarkdownFence): boolean {
     return new RegExp(`^\\s*(${marker}{${fence.length},})\\s*$`).test(line)
 }
 
-function findScriptFenceForRange (
-    model: monaco.editor.ITextModel,
-    startLine: number,
-    endLine: number,
-    settings: CodeBlockRunSettings,
-): ScriptFence | null {
-    let fence: MarkdownFence | null = null
-
-    for (let line = 1; line <= model.getLineCount(); line++) {
-        const content = model.getLineContent(line)
-
-        if (fence) {
-            if (isFenceEnd(content, fence)) {
-                if (
-                    fence.startLine !== undefined
-                    && fence.language
-                    && startLine > fence.startLine
-                    && endLine < line
-                    && settings.languageAliases[fence.language]
-                ) {
-                    return {
-                        language: settings.languageAliases[fence.language],
-                        startLine: fence.startLine,
-                        endLine: line,
-                    }
-                }
-                fence = null
-            }
-            continue
-        }
-
-        fence = parseFenceStart(content)
-        if (fence) {
-            fence.startLine = line
-        }
-    }
-
-    if (
-        fence?.startLine !== undefined
-        && fence.language
-        && startLine > fence.startLine
-        && settings.languageAliases[fence.language]
-    ) {
-        return {
-            language: settings.languageAliases[fence.language],
-            startLine: fence.startLine,
-            endLine: model.getLineCount(),
-        }
-    }
-
-    return null
-}
-
 function findCodeFenceForRange (
     model: monaco.editor.ITextModel,
     startLine: number,
@@ -237,43 +178,31 @@ function getSelectedLineRange (selection: monaco.Selection): { startLine: number
     }
 }
 
-function toggleHashComment (
+function selectFenceLanguage (
     editor: monaco.editor.IStandaloneCodeEditor,
     model: monaco.editor.ITextModel,
-    selection: monaco.Selection,
+    startLine: number,
 ): void {
-    const { startLine, endLine } = getSelectedLineRange(selection)
-    const lines = Array.from(
-        { length: endLine - startLine + 1 },
-        (_, index) => model.getLineContent(startLine + index),
-    )
-    const nonBlankLines = lines.filter(line => line.trim().length > 0)
-    const shouldUncomment = nonBlankLines.length > 0
-        && nonBlankLines.every(line => /^\s*# ?/.test(line))
+    const line = model.getLineContent(startLine)
+    const match = line.match(/^(\s*)(`{3,}|~{3,})(\s*)([^`~\s]+)?/)
+    if (!match) {
+        return
+    }
 
-    const newText = lines.map(line => {
-        if (!line.trim()) {
-            return line
-        }
-        if (shouldUncomment) {
-            return line.replace(/^(\s*)# ?/, '$1')
-        }
-        return line.replace(/^(\s*)/, '$1# ')
-    }).join('\n')
+    const prefixLength = match[1].length + match[2].length + match[3].length
+    const language = match[4] ?? ''
+    const startColumn = prefixLength + 1
+    const endColumn = startColumn + language.length
 
-    editor.executeEdits('toggle-hash-comment', [{
-        range: new monaco.Range(startLine, 1, endLine, model.getLineMaxColumn(endLine)),
-        text: newText,
-        forceMoveMarkers: true,
-    }])
-
-    editor.setSelection(selection)
+    editor.setSelection(new monaco.Selection(startLine, startColumn, startLine, endColumn))
+    editor.revealLineInCenterIfOutsideViewport(startLine)
+    editor.focus()
 }
 
 /** Toggle the appropriate comment style for the current Markdown/code-block context. */
 export function toggleSmartComment (
     editor: monaco.editor.IStandaloneCodeEditor,
-    settings: CodeBlockRunSettings,
+    _settings: CodeBlockRunSettings,
 ): void {
     const selection = editor.getSelection()
     const model = editor.getModel()
@@ -282,9 +211,9 @@ export function toggleSmartComment (
     }
 
     const { startLine, endLine } = getSelectedLineRange(selection)
-    const scriptFence = findScriptFenceForRange(model, startLine, endLine, settings)
-    if (scriptFence) {
-        toggleHashComment(editor, model, selection)
+    const fence = findCodeFenceForRange(model, startLine, endLine)
+    if (fence) {
+        selectFenceLanguage(editor, model, fence.startLine)
         return
     }
 

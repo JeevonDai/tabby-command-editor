@@ -204,6 +204,21 @@ export class CommandEditorPanelService {
             return
         }
 
+        if (
+            event.altKey
+            && !event.ctrlKey
+            && !event.metaKey
+            && !event.shiftKey
+            && event.code === 'KeyA'
+            && !findWidgetVisible
+            && !this.isMonacoOverlayInput(target)
+        ) {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            toggleCodeFence(this.panel.editor)
+            return
+        }
+
         if (findWidgetVisible) {
             if (event.key === 'F7') {
                 event.preventDefault()
