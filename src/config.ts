@@ -13,6 +13,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             panelPosition: 'right',
             panelSize: null as number | null,
             lastOpenedFile: null as string | null,
+            openedFileHistory: [] as string[],
             /** Seconds to wait after each line when batch-sending (e.g. 0.05 = 50ms). */
             sendLineIntervalSec: 1,
             /** Display unit for the send-line interval control. */
