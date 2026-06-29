@@ -100,6 +100,12 @@ export const ZH_CN_TRANSLATIONS: Record<string, string> = {
     'BG — run in background; stdout→terminal, stderr→log file (F10; click to switch to TF)': 'BG — 后台运行；stdout→终端，stderr→日志（F10；点击切换到 TF）',
     'Failed to write Python log file': '写入 Python 日志文件失败',
     'Failed to open Python log folder': '打开 Python 日志文件夹失败',
+
+    'Editor options': '编辑器选项',
+    'Right-click to send line': '右键发送当前行',
+    'When enabled, right-click in the editor sends the command on that line to the terminal instead of opening the context menu.': '开启后，在编辑器内右键会将鼠标所在行的命令发送到终端，不再弹出上下文菜单。',
+    'Right-click (when enabled in settings)': '右键（需在设置中开启）',
+    'Send the line under the mouse cursor to the terminal; replaces the context menu': '将鼠标所在行发送到终端；替代上下文菜单',
 }
 
 function interpolate (text: string, params?: Record<string, string | number>): string {

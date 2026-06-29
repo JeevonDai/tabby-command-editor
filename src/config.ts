@@ -20,6 +20,8 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             sendLineIntervalUnit: 's' as 'min' | 's' | 'ms',
             /** How many times to repeat the selected lines in loop send. */
             sendLoopCount: 1,
+            /** When true, right-click sends the line under the cursor instead of opening the context menu. */
+            rightClickSendLine: false,
             /** How code blocks (python/powershell/bash) are executed. */
             blockRunMode: 'background' as 'terminal' | 'background',
             /** Markdown fence language tag → interpreter family (python/bash/powershell). */

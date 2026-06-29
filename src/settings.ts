@@ -32,6 +32,7 @@ const GLOBAL_SHORTCUTS: Array<{ id: string; name: string }> = [
 ]
 
 const EDITOR_SHORTCUTS: ShortcutRow[] = [
+    { keys: 'Right-click', name: 'Right-click (when enabled in settings)', detail: 'Send the line under the mouse cursor to the terminal; replaces the context menu' },
     { keys: 'Enter / F8', name: 'Send', detail: 'Send current line or selection (blocked inside code blocks)' },
     { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends and background scripts' },
     { keys: 'F7', name: 'Go to next highlighted symbol', detail: 'Monaco built-in (plugin does not bind F7)' },
@@ -85,6 +86,21 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
     selector: 'command-editor-settings-tab',
     template: `
         <div class="command-editor-settings">
+            <section>
+                <h3>{{ labels.editorOptions }}</h3>
+                <div class="command-editor-option-row">
+                    <label class="command-editor-option-toggle">
+                        <input
+                            type="checkbox"
+                            [checked]="rightClickSendLine"
+                            (change)="onRightClickSendLineChange($event)"
+                        />
+                        <span>{{ labels.rightClickSendLine }}</span>
+                    </label>
+                    <p class="text-muted">{{ labels.rightClickSendLineDesc }}</p>
+                </div>
+            </section>
+
             <section>
                 <h3>{{ labels.globalHotkeys }}</h3>
                 <p class="text-muted">{{ labels.globalHotkeysDesc }}</p>
@@ -154,6 +170,28 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
 
         .command-editor-settings p {
             margin: 0 0 12px;
+        }
+
+        .command-editor-option-row {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .command-editor-option-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .command-editor-option-toggle input {
+            width: 16px;
+            height: 16px;
+            margin: 0;
+            cursor: pointer;
         }
 
         .command-editor-shortcut-table {
@@ -265,6 +303,9 @@ export class CommandEditorSettingsTabComponent {
 
     private refreshLocalizedContent (): void {
         this.labels = {
+            editorOptions: t(this.translate, this.locale, 'Editor options'),
+            rightClickSendLine: t(this.translate, this.locale, 'Right-click to send line'),
+            rightClickSendLineDesc: t(this.translate, this.locale, 'When enabled, right-click in the editor sends the command on that line to the terminal instead of opening the context menu.'),
             globalHotkeys: t(this.translate, this.locale, 'Global hotkeys'),
             globalHotkeysDesc: t(this.translate, this.locale, 'These are Tabby-level hotkeys registered by the command editor. Edit their bindings in Settings -> Hotkeys.'),
             action: t(this.translate, this.locale, 'Action'),
@@ -290,6 +331,19 @@ export class CommandEditorSettingsTabComponent {
             name: t(this.translate, this.locale, shortcut.name),
             detail: t(this.translate, this.locale, shortcut.detail),
         }))
+    }
+
+    get rightClickSendLine (): boolean {
+        return this.config.store.commandEditor?.rightClickSendLine === true
+    }
+
+    onRightClickSendLineChange (event: Event): void {
+        const checked = (event.target as HTMLInputElement).checked
+        if (!this.config.store.commandEditor) {
+            return
+        }
+        this.config.store.commandEditor.rightClickSendLine = checked
+        void this.config.save()
     }
 
     get globalShortcuts (): GlobalShortcutRow[] {

@@ -8,6 +8,7 @@ import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeading
 import {
     CodeExecution,
     findRunnableCodeBlockAtCursor,
+    findRunnableCodeBlockAtLine,
     resolveScriptLanguage,
     resolveScriptTerminalPayload,
     runCodeBlock,
@@ -357,6 +358,49 @@ export class CommandEditorPanelService {
                 this.pendingLastOpenedFile = filePath
             }
         })
+        this.config.changed$.subscribe(() => {
+            const editor = this.panel?.editor
+            if (editor) {
+                this.applyRightClickSendLineEditorOptions(editor)
+            }
+        })
+    }
+
+    private readonly onEditorContextMenu = (event: MouseEvent): void => {
+        if (!this.isRightClickSendLineEnabled()) {
+            return
+        }
+
+        const editor = this.panel?.editor
+        if (!editor) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+
+        const target = editor.getTargetAtClientPoint(event.clientX, event.clientY)
+        const lineNumber = target?.position?.lineNumber
+        if (!lineNumber) {
+            return
+        }
+
+        this.zone.run(() => this.sendFromPanelAtLine(lineNumber))
+    }
+
+    private applyRightClickSendLineEditorOptions (editor: monaco.editor.IStandaloneCodeEditor): void {
+        editor.updateOptions({
+            contextmenu: !this.isRightClickSendLineEnabled(),
+        })
+    }
+
+    private setupRightClickSendLine (
+        editor: monaco.editor.IStandaloneCodeEditor,
+        editorHost: HTMLElement,
+    ): void {
+        editorHost.addEventListener('contextmenu', this.onEditorContextMenu, true)
+        this.applyRightClickSendLineEditorOptions(editor)
     }
 
     isOverlayVisible (_tab: BaseTerminalTabComponent<any>): boolean {
@@ -538,6 +582,41 @@ export class CommandEditorPanelService {
         }
 
         this.sendToTerminal(terminalTab, text)
+    }
+
+    sendFromPanelAtLine (lineNumber: number, _terminal?: BaseTerminalTabComponent<any> | null): void {
+        const state = this.panel
+        const terminalTab = _terminal ?? this.resolveTerminalForSend()
+        if (!state?.visible || !terminalTab) {
+            if (!terminalTab) {
+                this.notifications.info(t(this.translate, this.locale, 'No active terminal'))
+            }
+            return
+        }
+
+        const model = state.editor.getModel()
+        if (!model) {
+            return
+        }
+
+        if (findRunnableCodeBlockAtLine(state.editor, lineNumber, this.getCodeBlockRunSettings())) {
+            this.notifications.info(t(this.translate, this.locale, 'Send is disabled inside code blocks — use Loop or Run (F9)'))
+            return
+        }
+
+        const text = stripComments(model.getLineContent(lineNumber))
+        if (!text.trim()) {
+            this.notifications.info(t(this.translate, this.locale, 'Nothing to send'))
+            return
+        }
+
+        state.editor.setPosition({ lineNumber, column: 1 })
+        state.editor.revealLineInCenterIfOutsideViewport(lineNumber)
+        this.sendToTerminal(terminalTab, text)
+    }
+
+    private isRightClickSendLineEnabled (): boolean {
+        return this.config.store.commandEditor?.rightClickSendLine === true
     }
 
     async loopOrRun (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
@@ -1207,6 +1286,7 @@ export class CommandEditorPanelService {
                 useShadows: false,
             },
             overviewRulerLanes: 0,
+            contextmenu: !this.isRightClickSendLineEnabled(),
         })
 
         openBtn.addEventListener('click', () => this.openFile())
@@ -1234,6 +1314,7 @@ export class CommandEditorPanelService {
         sendLoopCountInput.addEventListener('change', () => this.persistSendLoopCountInput(sendLoopCountInput))
 
         this.setupEditorKeybindings(editor)
+        this.setupRightClickSendLine(editor, editorHost)
 
         editor.onDidChangeCursorSelection((event) => {
             this.savedEditorSelection = event.selection

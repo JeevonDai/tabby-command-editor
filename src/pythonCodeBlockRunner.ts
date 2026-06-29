@@ -47,10 +47,21 @@ export function findRunnableCodeBlockAtCursor (
     editor: monaco.editor.IStandaloneCodeEditor,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): RunnableCodeBlock | null {
+    const position = editor.getPosition()
+    if (!position) {
+        return null
+    }
+    return findRunnableCodeBlockAtLine(editor, position.lineNumber, settings)
+}
+
+export function findRunnableCodeBlockAtLine (
+    editor: monaco.editor.IStandaloneCodeEditor,
+    lineNumber: number,
+    settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
+): RunnableCodeBlock | null {
     const runnableLanguages = new Set(Object.keys(settings.languageAliases))
     const model = editor.getModel()
-    const position = editor.getPosition()
-    if (!model || !position) {
+    if (!model) {
         return null
     }
 
@@ -68,8 +79,8 @@ export function findRunnableCodeBlockAtCursor (
         }
 
         if (
-            position.lineNumber >= fence.startLine
-            && position.lineNumber <= line
+            lineNumber >= fence.startLine
+            && lineNumber <= line
             && runnableLanguages.has(fence.language)
         ) {
             return {
@@ -90,7 +101,7 @@ export function findRunnableCodeBlockAtCursor (
 
     if (
         fence
-        && position.lineNumber >= fence.startLine
+        && lineNumber >= fence.startLine
         && runnableLanguages.has(fence.language)
     ) {
         return {
