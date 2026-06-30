@@ -1,5 +1,6 @@
 import { NgModule } from '@angular/core'
 import { CommonModule } from '@angular/common'
+import { FormsModule } from '@angular/forms'
 import { ConfigProvider, HotkeyProvider } from 'tabby-core'
 import { TerminalContextMenuItemProvider } from 'tabby-terminal'
 import { SettingsTabProvider } from 'tabby-settings'
@@ -16,6 +17,7 @@ import { CommandEditorSettingsTabComponent, CommandEditorSettingsTabProvider } f
 @NgModule({
     imports: [
         CommonModule,
+        FormsModule,
     ],
     declarations: [
         CommandEditorSettingsTabComponent,

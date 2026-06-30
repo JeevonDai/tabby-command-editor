@@ -1,8 +1,25 @@
 import { ChangeDetectorRef, Component, Injectable } from '@angular/core'
 import { ConfigService, LocaleService, TranslateService } from 'tabby-core'
 import { SettingsTabProvider } from 'tabby-settings'
-import { formatCodeBlockRunConfigForDisplay } from './codeBlockRunConfig'
+import {
+    CodeBlockRunSettings,
+    resolveCodeBlockRunSettings,
+    ScriptLanguage,
+} from './codeBlockRunConfig'
 import { t } from './locale'
+
+interface LanguageAliasRow {
+    alias: string
+    language: ScriptLanguage
+}
+
+interface RunCommandRow {
+    language: ScriptLanguage
+    terminalCommand: string
+    backgroundCommand: string
+}
+
+const SCRIPT_LANGUAGES: ScriptLanguage[] = ['python', 'bash', 'powershell']
 
 interface ShortcutRow {
     name: string
@@ -145,12 +162,108 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
             <section>
                 <h3>{{ labels.codeBlockRun }}</h3>
                 <p class="text-muted">{{ labels.codeBlockRunDesc }}</p>
-                <ul class="command-editor-config-keys text-muted">
-                    <li>codeBlockLanguageAliases — {{ labels.codeBlockAliases }}</li>
-                    <li>codeBlockTerminalCommands — {{ labels.codeBlockTf }}</li>
-                    <li>codeBlockBackgroundCommands — {{ labels.codeBlockBg }}</li>
-                </ul>
-                <pre class="command-editor-config-json">{{ codeBlockRunConfigJson }}</pre>
+
+                <div class="command-editor-run-config-grid">
+                    <div class="command-editor-config-panel">
+                        <div class="command-editor-config-panel-header">
+                            <div>
+                                <h4>{{ labels.languageAliases }}</h4>
+                                <p class="text-muted">{{ labels.codeBlockAliases }}</p>
+                            </div>
+                            <button class="btn btn-sm btn-secondary" type="button" (click)="addAlias()">
+                                <i class="fas fa-plus"></i> {{ labels.add }}
+                            </button>
+                        </div>
+
+                        <div class="command-editor-list alias-list">
+                            <div class="command-editor-list-row list-header">
+                                <span>{{ labels.fenceAlias }}</span>
+                                <span>{{ labels.language }}</span>
+                                <span></span>
+                            </div>
+                            <div class="command-editor-list-row" *ngFor="let row of aliasRows; let i = index; trackBy: trackByIndex">
+                                <input
+                                    class="form-control form-control-sm"
+                                    type="text"
+                                    [(ngModel)]="row.alias"
+                                    [attr.aria-label]="labels.fenceAlias"
+                                    (ngModelChange)="markDirty()"
+                                >
+                                <select
+                                    class="form-control form-control-sm"
+                                    [(ngModel)]="row.language"
+                                    [attr.aria-label]="labels.language"
+                                    (ngModelChange)="markDirty()"
+                                >
+                                    <option *ngFor="let language of scriptLanguages" [ngValue]="language">{{ language }}</option>
+                                </select>
+                                <button
+                                    class="btn btn-sm btn-outline-danger icon-button"
+                                    type="button"
+                                    [attr.aria-label]="labels.remove"
+                                    [title]="labels.remove"
+                                    (click)="removeAlias(i)"
+                                >
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-sm btn-link config-fill-button" type="button" (click)="fillDefaultAliases()">
+                            {{ labels.fillDefaultAliases }}
+                        </button>
+                    </div>
+
+                    <div class="command-editor-config-panel">
+                        <div class="command-editor-config-panel-header">
+                            <div>
+                                <h4>{{ labels.runCommands }}</h4>
+                                <p class="text-muted">{{ labels.runCommandsDesc }}</p>
+                            </div>
+                        </div>
+
+                        <div class="command-editor-list command-list">
+                            <div class="command-editor-list-row list-header">
+                                <span>{{ labels.language }}</span>
+                                <span>{{ labels.foregroundCommand }}</span>
+                                <span>{{ labels.backgroundCommand }}</span>
+                            </div>
+                            <div class="command-editor-list-row" *ngFor="let row of commandRows; trackBy: trackByLanguage">
+                                <code>{{ row.language }}</code>
+                                <input
+                                    class="form-control form-control-sm command-input"
+                                    type="text"
+                                    [(ngModel)]="row.terminalCommand"
+                                    [attr.aria-label]="labels.foregroundCommand + ': ' + row.language"
+                                    (ngModelChange)="markDirty()"
+                                >
+                                <input
+                                    class="form-control form-control-sm command-input"
+                                    type="text"
+                                    [(ngModel)]="row.backgroundCommand"
+                                    [attr.aria-label]="labels.backgroundCommand + ': ' + row.language"
+                                    (ngModelChange)="markDirty()"
+                                >
+                            </div>
+                        </div>
+
+                        <div class="command-editor-command-help text-muted">
+                            <span>{{ labels.codeBlockTf }}</span>
+                            <span>{{ labels.codeBlockBg }}</span>
+                        </div>
+                        <button class="btn btn-sm btn-link config-fill-button" type="button" (click)="fillDefaultCommands()">
+                            {{ labels.fillDefaultCommands }}
+                        </button>
+                    </div>
+                </div>
+
+                <div class="command-editor-config-actions">
+                    <span class="text-danger" *ngIf="saveError">{{ saveError }}</span>
+                    <span class="text-success" *ngIf="saveMessage">{{ saveMessage }}</span>
+                    <button class="btn btn-primary" type="button" [disabled]="saving || !dirty" (click)="saveCodeBlockConfig()">
+                        <i class="fas fa-save"></i> {{ saving ? labels.saving : labels.saveConfig }}
+                    </button>
+                </div>
             </section>
         </div>
     `,
@@ -249,29 +362,115 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
             color: var(--bs-secondary-color, #aaa);
         }
 
-        .command-editor-config-keys {
-            margin: 0 0 12px;
-            padding-left: 1.2rem;
+        .command-editor-run-config-grid {
+            display: grid;
+            grid-template-columns: minmax(320px, 0.8fr) minmax(520px, 1.4fr);
+            gap: 16px;
+            align-items: start;
+        }
+
+        .command-editor-config-panel {
+            min-width: 0;
+            padding: 14px;
+            border: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.14));
+            border-radius: 4px;
+        }
+
+        .command-editor-config-panel-header {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            justify-content: space-between;
+            min-height: 54px;
+            margin-bottom: 10px;
+        }
+
+        .command-editor-config-panel h4 {
+            margin: 0 0 4px;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .command-editor-config-panel p {
+            margin: 0;
+            font-size: 12px;
+        }
+
+        .command-editor-list {
+            display: grid;
+            gap: 6px;
+        }
+
+        .command-editor-list-row {
+            display: grid;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .alias-list .command-editor-list-row {
+            grid-template-columns: minmax(100px, 1fr) minmax(120px, 1fr) 32px;
+        }
+
+        .command-list .command-editor-list-row {
+            grid-template-columns: 90px minmax(170px, 1fr) minmax(170px, 1fr);
+        }
+
+        .command-editor-list-row.list-header {
+            padding: 0 2px 2px;
+            color: var(--bs-secondary-color, #888);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .command-editor-list-row code {
+            color: var(--bs-body-color, #ddd);
+        }
+
+        .command-input {
+            min-width: 0;
+            font-family: monospace;
+        }
+
+        .icon-button {
+            width: 32px;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        .config-fill-button {
+            margin-top: 10px;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        .command-editor-command-help {
+            display: grid;
+            grid-template-columns: 90px 1fr 1fr;
+            gap: 8px;
+            margin-top: 8px;
+            padding-left: 98px;
+            font-size: 11px;
+        }
+
+        .command-editor-command-help span:first-child {
+            grid-column: 2;
+        }
+
+        .command-editor-config-actions {
+            display: flex;
+            min-height: 38px;
+            gap: 12px;
+            align-items: center;
+            justify-content: flex-end;
+            margin-top: 12px;
             font-size: 13px;
         }
 
-        .command-editor-config-keys li {
-            margin-bottom: 4px;
-        }
-
-        .command-editor-config-json {
-            margin: 0;
-            padding: 12px;
-            max-height: 420px;
-            overflow: auto;
-            font-size: 12px;
-            line-height: 1.45;
-            font-family: monospace;
-            color: var(--bs-body-color, #ddd);
-            background: var(--bs-tertiary-bg, rgba(255, 255, 255, 0.04));
-            border: 1px solid var(--bs-border-color, rgba(255, 255, 255, 0.14));
-            border-radius: 4px;
-            white-space: pre;
+        @media (max-width: 1050px) {
+            .command-editor-run-config-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         @media (max-width: 820px) {
@@ -280,6 +479,15 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                 grid-template-columns: 1fr;
                 gap: 5px;
             }
+
+            .command-list .command-editor-list-row {
+                grid-template-columns: 1fr;
+            }
+
+            .command-editor-command-help,
+            .command-editor-list-row.list-header.command-editor-list-row {
+                display: none;
+            }
         }
     `],
 })
@@ -287,6 +495,13 @@ export class CommandEditorSettingsTabComponent {
     labels: Record<string, string> = {}
     editorShortcuts: ShortcutRow[] = []
     findShortcuts: ShortcutRow[] = []
+    readonly scriptLanguages = SCRIPT_LANGUAGES
+    aliasRows: LanguageAliasRow[] = []
+    commandRows: RunCommandRow[] = []
+    dirty = false
+    saving = false
+    saveError = ''
+    saveMessage = ''
 
     constructor (
         private config: ConfigService,
@@ -294,6 +509,7 @@ export class CommandEditorSettingsTabComponent {
         private locale: LocaleService,
         private cdr: ChangeDetectorRef,
     ) {
+        this.loadCodeBlockConfig()
         this.refreshLocalizedContent()
         this.locale.localeChanged$.subscribe(() => {
             this.refreshLocalizedContent()
@@ -316,10 +532,23 @@ export class CommandEditorSettingsTabComponent {
             searchFocusKeys: t(this.translate, this.locale, 'Search focus keys'),
             searchFocusKeysDesc: t(this.translate, this.locale, 'These keys keep sending and running available while Monaco search is open.'),
             codeBlockRun: t(this.translate, this.locale, 'Code block run commands'),
-            codeBlockRunDesc: t(this.translate, this.locale, 'Customize python/bash/powershell under commandEditor in config.yaml (keys: python, bash, powershell). Platform defaults apply on Windows vs macOS/Linux. Below is the effective merged configuration.'),
+            codeBlockRunDesc: t(this.translate, this.locale, 'Configure runnable Markdown fence aliases and foreground/background commands. Save writes these values under commandEditor in config.yaml.'),
+            languageAliases: t(this.translate, this.locale, 'Language aliases'),
             codeBlockAliases: t(this.translate, this.locale, 'Markdown fence tag → interpreter family (python / bash / powershell)'),
+            runCommands: t(this.translate, this.locale, 'Run commands'),
+            runCommandsDesc: t(this.translate, this.locale, 'One foreground and background command for each interpreter family.'),
+            fenceAlias: t(this.translate, this.locale, 'Fence alias'),
+            language: t(this.translate, this.locale, 'Language'),
+            foregroundCommand: t(this.translate, this.locale, 'Foreground command'),
+            backgroundCommand: t(this.translate, this.locale, 'Background command'),
             codeBlockBg: t(this.translate, this.locale, 'BG mode: spawn command string; script body is written to stdin'),
             codeBlockTf: t(this.translate, this.locale, 'TF mode: command sent to terminal; {file} = quoted temp script path'),
+            add: t(this.translate, this.locale, 'Add'),
+            remove: t(this.translate, this.locale, 'Remove'),
+            fillDefaultAliases: t(this.translate, this.locale, 'Fill missing default aliases'),
+            fillDefaultCommands: t(this.translate, this.locale, 'Fill default commands'),
+            saveConfig: t(this.translate, this.locale, 'Save to config file'),
+            saving: t(this.translate, this.locale, 'Saving...'),
         }
         this.editorShortcuts = EDITOR_SHORTCUTS.map(shortcut => ({
             ...shortcut,
@@ -355,8 +584,114 @@ export class CommandEditorSettingsTabComponent {
         }))
     }
 
-    get codeBlockRunConfigJson (): string {
-        return formatCodeBlockRunConfigForDisplay(this.config.store.commandEditor)
+    addAlias (): void {
+        this.aliasRows.push({ alias: '', language: 'python' })
+        this.markDirty()
+    }
+
+    removeAlias (index: number): void {
+        this.aliasRows.splice(index, 1)
+        this.markDirty()
+    }
+
+    fillDefaultAliases (): void {
+        const defaults = resolveCodeBlockRunSettings(undefined)
+        const existing = new Set(this.aliasRows.map(row => row.alias.trim().toLowerCase()))
+        for (const [alias, language] of Object.entries(defaults.languageAliases)) {
+            if (!existing.has(alias)) {
+                this.aliasRows.push({ alias, language })
+            }
+        }
+        this.markDirty()
+    }
+
+    fillDefaultCommands (): void {
+        const defaults = resolveCodeBlockRunSettings(undefined)
+        for (const row of this.commandRows) {
+            row.terminalCommand = defaults.terminalCommands[row.language]
+            row.backgroundCommand = defaults.backgroundCommands[row.language]
+        }
+        this.markDirty()
+    }
+
+    markDirty (): void {
+        this.dirty = true
+        this.saveError = ''
+        this.saveMessage = ''
+    }
+
+    async saveCodeBlockConfig (): Promise<void> {
+        if (this.saving) {
+            return
+        }
+
+        const aliases: Record<string, ScriptLanguage> = {}
+        for (const row of this.aliasRows) {
+            const alias = row.alias.trim().toLowerCase()
+            if (!alias) {
+                this.saveError = t(this.translate, this.locale, 'Language aliases cannot be empty.')
+                return
+            }
+            if (aliases[alias]) {
+                this.saveError = t(this.translate, this.locale, 'Language alias "{alias}" is duplicated.', { alias })
+                return
+            }
+            aliases[alias] = row.language
+        }
+
+        const terminalCommands = {} as Record<ScriptLanguage, string>
+        const backgroundCommands = {} as Record<ScriptLanguage, string>
+        for (const row of this.commandRows) {
+            const terminalCommand = row.terminalCommand.trim()
+            const backgroundCommand = row.backgroundCommand.trim()
+            if (!terminalCommand || !backgroundCommand) {
+                this.saveError = t(this.translate, this.locale, 'Both commands are required for {language}.', {
+                    language: row.language,
+                })
+                return
+            }
+            terminalCommands[row.language] = terminalCommand
+            backgroundCommands[row.language] = backgroundCommand
+        }
+
+        this.saving = true
+        this.saveError = ''
+        this.saveMessage = ''
+        try {
+            const commandEditor = this.config.store.commandEditor as Record<string, unknown>
+            commandEditor.codeBlockLanguageAliases = aliases
+            commandEditor.codeBlockTerminalCommands = terminalCommands
+            commandEditor.codeBlockBackgroundCommands = backgroundCommands
+            await this.config.save()
+            this.dirty = false
+            this.saveMessage = t(this.translate, this.locale, 'Code block run configuration saved.')
+        } catch (error) {
+            this.saveError = t(this.translate, this.locale, 'Failed to save code block run configuration.')
+        } finally {
+            this.saving = false
+            this.cdr.markForCheck()
+        }
+    }
+
+    trackByIndex (index: number): number {
+        return index
+    }
+
+    trackByLanguage (_index: number, row: RunCommandRow): ScriptLanguage {
+        return row.language
+    }
+
+    private loadCodeBlockConfig (): void {
+        const settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(this.config.store.commandEditor)
+        this.aliasRows = Object.entries(settings.languageAliases).map(([alias, language]) => ({
+            alias,
+            language,
+        }))
+        this.commandRows = SCRIPT_LANGUAGES.map(language => ({
+            language,
+            terminalCommand: settings.terminalCommands[language],
+            backgroundCommand: settings.backgroundCommands[language],
+        }))
     }
 
     private formatHotkeys (value: string[] | string[][] | undefined): string {
