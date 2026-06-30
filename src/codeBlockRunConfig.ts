@@ -1,7 +1,8 @@
-export type ScriptLanguage = 'python' | 'bash' | 'powershell'
+/** User-configurable interpreter identifier (for example python, node or ruby). */
+export type ScriptLanguage = string
 export type BlockRunMode = 'terminal' | 'background'
 
-export type ScriptLanguageMap = Record<ScriptLanguage, string>
+export type ScriptLanguageMap = Record<string, string>
 
 export interface CodeBlockRunSettings {
     languageAliases: Record<string, ScriptLanguage>
@@ -11,12 +12,12 @@ export interface CodeBlockRunSettings {
 
 export interface CommandEditorCodeBlockConfig {
     codeBlockLanguageAliases?: Record<string, string>
-    codeBlockTerminalCommands?: Partial<Record<ScriptLanguage, string>>
-    codeBlockBackgroundCommands?: Partial<Record<ScriptLanguage, string>>
+    codeBlockTerminalCommands?: Record<string, string>
+    codeBlockBackgroundCommands?: Record<string, string>
     /** Legacy config key kept for migration. */
-    codeBlockTerminalFileCommands?: Partial<Record<ScriptLanguage, string>>
+    codeBlockTerminalFileCommands?: Record<string, string>
     /** Legacy config key kept for migration. */
-    codeBlockBackgroundRunners?: Partial<Record<ScriptLanguage, string>>
+    codeBlockBackgroundRunners?: Record<string, string>
 }
 
 export const DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES: Record<string, ScriptLanguage> = {
@@ -150,26 +151,30 @@ function normalizeLanguageAliases (
 ): Record<string, ScriptLanguage> {
     const normalized = { ...DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES }
     for (const [tag, language] of Object.entries(aliases ?? {})) {
-        if (isScriptLanguage(language)) {
-            normalized[tag.toLowerCase()] = language
+        const normalizedTag = tag.trim().toLowerCase()
+        const normalizedLanguage = normalizeLanguageName(language)
+        if (normalizedTag && normalizedLanguage) {
+            normalized[normalizedTag] = normalizedLanguage
         }
     }
     return normalized
 }
 
 function normalizeCommandMap (
-    commands: Partial<Record<ScriptLanguage, string>> | undefined,
-): Partial<ScriptLanguageMap> {
-    const normalized: Partial<ScriptLanguageMap> = {}
-    for (const language of ['python', 'bash', 'powershell'] as ScriptLanguage[]) {
-        const command = commands?.[language]
+    commands: Record<string, string> | undefined,
+): ScriptLanguageMap {
+    const normalized: ScriptLanguageMap = {}
+    for (const [rawLanguage, command] of Object.entries(commands ?? {})) {
+        const language = normalizeLanguageName(rawLanguage)
         if (typeof command === 'string' && command.trim()) {
-            normalized[language] = command
+            if (language) {
+                normalized[language] = command.trim()
+            }
         }
     }
     return normalized
 }
 
-function isScriptLanguage (value: string): value is ScriptLanguage {
-    return value === 'python' || value === 'bash' || value === 'powershell'
+function normalizeLanguageName (value: unknown): string {
+    return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }

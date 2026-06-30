@@ -19,7 +19,11 @@ interface RunCommandRow {
     backgroundCommand: string
 }
 
-const SCRIPT_LANGUAGES: ScriptLanguage[] = ['python', 'bash', 'powershell']
+interface WritableConfigNode extends Record<string, unknown> {
+    __setValue?: (key: string, value: unknown) => void
+}
+
+const DEFAULT_SCRIPT_LANGUAGE = 'python'
 
 interface ShortcutRow {
     name: string
@@ -220,6 +224,9 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                                 <h4>{{ labels.runCommands }}</h4>
                                 <p class="text-muted">{{ labels.runCommandsDesc }}</p>
                             </div>
+                            <button class="btn btn-sm btn-secondary header-action" type="button" (click)="addCommand()">
+                                <i class="fas fa-plus"></i><span>{{ labels.addInterpreter }}</span>
+                            </button>
                         </div>
 
                         <div class="command-editor-list command-list">
@@ -227,9 +234,16 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                                 <span>{{ labels.language }}</span>
                                 <span>{{ labels.foregroundCommand }}</span>
                                 <span>{{ labels.backgroundCommand }}</span>
+                                <span></span>
                             </div>
-                            <div class="command-editor-list-row" *ngFor="let row of commandRows; trackBy: trackByLanguage">
-                                <code>{{ row.language }}</code>
+                            <div class="command-editor-list-row" *ngFor="let row of commandRows; let i = index; trackBy: trackByIndex">
+                                <input
+                                    class="form-control form-control-sm"
+                                    type="text"
+                                    [(ngModel)]="row.language"
+                                    [attr.aria-label]="labels.language"
+                                    (ngModelChange)="markDirty()"
+                                >
                                 <input
                                     class="form-control form-control-sm command-input"
                                     type="text"
@@ -244,6 +258,15 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                                     [attr.aria-label]="labels.backgroundCommand + ': ' + row.language"
                                     (ngModelChange)="markDirty()"
                                 >
+                                <button
+                                    class="btn btn-sm btn-outline-danger icon-button"
+                                    type="button"
+                                    [attr.aria-label]="labels.remove"
+                                    [title]="labels.remove"
+                                    (click)="removeCommand(i)"
+                                >
+                                    <i class="fas fa-trash"></i>
+                                </button>
                             </div>
                         </div>
 
@@ -385,6 +408,14 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
             margin-bottom: 10px;
         }
 
+        .command-editor-config-panel-header .header-action {
+            display: inline-flex;
+            flex: 0 0 auto;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
         .command-editor-config-panel h4 {
             margin: 0 0 4px;
             font-size: 15px;
@@ -412,7 +443,7 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
         }
 
         .command-list .command-editor-list-row {
-            grid-template-columns: 90px minmax(170px, 1fr) minmax(170px, 1fr);
+            grid-template-columns: minmax(90px, 0.55fr) minmax(170px, 1fr) minmax(170px, 1fr) 32px;
         }
 
         .command-editor-list-row.list-header {
@@ -433,7 +464,11 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
         }
 
         .icon-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             width: 32px;
+            height: 31px;
             padding-left: 0;
             padding-right: 0;
         }
@@ -446,10 +481,9 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
 
         .command-editor-command-help {
             display: grid;
-            grid-template-columns: 90px 1fr 1fr;
+            grid-template-columns: minmax(90px, 0.55fr) minmax(170px, 1fr) minmax(170px, 1fr) 32px;
             gap: 8px;
             margin-top: 8px;
-            padding-left: 98px;
             font-size: 11px;
         }
 
@@ -495,7 +529,11 @@ export class CommandEditorSettingsTabComponent {
     labels: Record<string, string> = {}
     editorShortcuts: ShortcutRow[] = []
     findShortcuts: ShortcutRow[] = []
-    readonly scriptLanguages = SCRIPT_LANGUAGES
+    get scriptLanguages (): ScriptLanguage[] {
+        return this.commandRows
+            .map(row => row.language.trim().toLowerCase())
+            .filter(Boolean)
+    }
     aliasRows: LanguageAliasRow[] = []
     commandRows: RunCommandRow[] = []
     dirty = false
@@ -534,9 +572,9 @@ export class CommandEditorSettingsTabComponent {
             codeBlockRun: t(this.translate, this.locale, 'Code block run commands'),
             codeBlockRunDesc: t(this.translate, this.locale, 'Configure runnable Markdown fence aliases and foreground/background commands. Save writes these values under commandEditor in config.yaml.'),
             languageAliases: t(this.translate, this.locale, 'Language aliases'),
-            codeBlockAliases: t(this.translate, this.locale, 'Markdown fence tag → interpreter family (python / bash / powershell)'),
+            codeBlockAliases: t(this.translate, this.locale, 'Markdown fence tag → interpreter'),
             runCommands: t(this.translate, this.locale, 'Run commands'),
-            runCommandsDesc: t(this.translate, this.locale, 'One foreground and background command for each interpreter family.'),
+            runCommandsDesc: t(this.translate, this.locale, 'Configure foreground and background commands for each interpreter.'),
             fenceAlias: t(this.translate, this.locale, 'Fence alias'),
             language: t(this.translate, this.locale, 'Language'),
             foregroundCommand: t(this.translate, this.locale, 'Foreground command'),
@@ -544,10 +582,11 @@ export class CommandEditorSettingsTabComponent {
             codeBlockBg: t(this.translate, this.locale, 'BG mode: spawn command string; script body is written to stdin'),
             codeBlockTf: t(this.translate, this.locale, 'TF mode: command sent to terminal; {file} = quoted temp script path'),
             add: t(this.translate, this.locale, 'Add'),
+            addInterpreter: t(this.translate, this.locale, 'Add interpreter'),
             remove: t(this.translate, this.locale, 'Remove'),
             fillDefaultAliases: t(this.translate, this.locale, 'Fill missing default aliases'),
             fillDefaultCommands: t(this.translate, this.locale, 'Fill default commands'),
-            saveConfig: t(this.translate, this.locale, 'Save to config file'),
+            saveConfig: t(this.translate, this.locale, 'Save and apply'),
             saving: t(this.translate, this.locale, 'Saving...'),
         }
         this.editorShortcuts = EDITOR_SHORTCUTS.map(shortcut => ({
@@ -585,7 +624,17 @@ export class CommandEditorSettingsTabComponent {
     }
 
     addAlias (): void {
-        this.aliasRows.push({ alias: '', language: 'python' })
+        this.aliasRows.push({ alias: '', language: this.scriptLanguages[0] ?? DEFAULT_SCRIPT_LANGUAGE })
+        this.markDirty()
+    }
+
+    addCommand (): void {
+        this.commandRows.push({ language: '', terminalCommand: '', backgroundCommand: '' })
+        this.markDirty()
+    }
+
+    removeCommand (index: number): void {
+        this.commandRows.splice(index, 1)
         this.markDirty()
     }
 
@@ -628,45 +677,70 @@ export class CommandEditorSettingsTabComponent {
         const aliases: Record<string, ScriptLanguage> = {}
         for (const row of this.aliasRows) {
             const alias = row.alias.trim().toLowerCase()
+            const language = row.language.trim().toLowerCase()
             if (!alias) {
                 this.saveError = t(this.translate, this.locale, 'Language aliases cannot be empty.')
+                return
+            }
+            if (!language) {
+                this.saveError = t(this.translate, this.locale, 'Interpreter name cannot be empty.')
                 return
             }
             if (aliases[alias]) {
                 this.saveError = t(this.translate, this.locale, 'Language alias "{alias}" is duplicated.', { alias })
                 return
             }
-            aliases[alias] = row.language
+            aliases[alias] = language
         }
 
-        const terminalCommands = {} as Record<ScriptLanguage, string>
-        const backgroundCommands = {} as Record<ScriptLanguage, string>
+        const terminalCommands: Record<string, string> = {}
+        const backgroundCommands: Record<string, string> = {}
         for (const row of this.commandRows) {
+            const language = row.language.trim().toLowerCase()
             const terminalCommand = row.terminalCommand.trim()
             const backgroundCommand = row.backgroundCommand.trim()
+            if (!language) {
+                this.saveError = t(this.translate, this.locale, 'Interpreter name cannot be empty.')
+                return
+            }
+            if (terminalCommands[language]) {
+                this.saveError = t(this.translate, this.locale, 'Interpreter "{language}" is duplicated.', { language })
+                return
+            }
             if (!terminalCommand || !backgroundCommand) {
                 this.saveError = t(this.translate, this.locale, 'Both commands are required for {language}.', {
-                    language: row.language,
+                    language,
                 })
                 return
             }
-            terminalCommands[row.language] = terminalCommand
-            backgroundCommands[row.language] = backgroundCommand
+            terminalCommands[language] = terminalCommand
+            backgroundCommands[language] = backgroundCommand
         }
 
         this.saving = true
         this.saveError = ''
         this.saveMessage = ''
         try {
-            const commandEditor = this.config.store.commandEditor as Record<string, unknown>
-            commandEditor.codeBlockLanguageAliases = aliases
-            commandEditor.codeBlockTerminalCommands = terminalCommands
-            commandEditor.codeBlockBackgroundCommands = backgroundCommands
+            const commandEditor = this.config.store.commandEditor as WritableConfigNode | undefined
+            if (!commandEditor) {
+                throw new Error('commandEditor configuration is unavailable')
+            }
+            this.setConfigValue(commandEditor, 'codeBlockLanguageAliases', { ...aliases })
+            this.setConfigValue(commandEditor, 'codeBlockTerminalCommands', { ...terminalCommands })
+            this.setConfigValue(commandEditor, 'codeBlockBackgroundCommands', { ...backgroundCommands })
             await this.config.save()
+            // ConfigProxy may still expose its pre-save snapshot here. Reload the
+            // persisted YAML before rebuilding the form so it reflects disk state.
+            await this.config.load()
+            this.loadCodeBlockConfig()
             this.dirty = false
-            this.saveMessage = t(this.translate, this.locale, 'Code block run configuration saved.')
+            this.saveMessage = t(this.translate, this.locale, 'Code block run configuration saved and applied.')
         } catch (error) {
-            this.saveError = t(this.translate, this.locale, 'Failed to save code block run configuration.')
+            const detail = error instanceof Error ? error.message : String(error)
+            console.error('Failed to save code block run configuration:', error)
+            this.saveError = detail
+                ? `${t(this.translate, this.locale, 'Failed to save code block run configuration.')} ${detail}`
+                : t(this.translate, this.locale, 'Failed to save code block run configuration.')
         } finally {
             this.saving = false
             this.cdr.markForCheck()
@@ -681,13 +755,26 @@ export class CommandEditorSettingsTabComponent {
         return row.language
     }
 
+    private setConfigValue (node: WritableConfigNode, key: string, value: unknown): void {
+        if (typeof node.__setValue === 'function') {
+            node.__setValue(key, value)
+            return
+        }
+        node[key] = value
+    }
+
     private loadCodeBlockConfig (): void {
         const settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(this.config.store.commandEditor)
         this.aliasRows = Object.entries(settings.languageAliases).map(([alias, language]) => ({
             alias,
             language,
         }))
-        this.commandRows = SCRIPT_LANGUAGES.map(language => ({
+        const languages = new Set([
+            ...Object.keys(settings.terminalCommands),
+            ...Object.keys(settings.backgroundCommands),
+            ...Object.values(settings.languageAliases),
+        ])
+        this.commandRows = [...languages].map(language => ({
             language,
             terminalCommand: settings.terminalCommands[language],
             backgroundCommand: settings.backgroundCommands[language],

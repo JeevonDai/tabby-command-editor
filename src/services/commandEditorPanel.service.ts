@@ -362,7 +362,13 @@ export class CommandEditorPanelService {
             const editor = this.panel?.editor
             if (editor) {
                 this.applyRightClickSendLineEditorOptions(editor)
+                const model = editor.getModel()
+                if (model) {
+                    // Re-tokenize existing fences after runnable language aliases change.
+                    monaco.editor.setModelLanguage(model, COMMAND_EDITOR_LANGUAGE)
+                }
             }
+            this.refreshBlockRunModeButton()
         })
     }
 

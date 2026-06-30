@@ -587,7 +587,23 @@ export function resolveScriptTerminalPayload (
         case 'powershell':
             return resolvePowerShellTerminalPayload(code, settings)
     }
-    throw new Error(`Unsupported code block language: ${language}`)
+    const scriptPath = writeTempScript(code, language)
+    return {
+        mode: 'line',
+        command: buildTerminalCommand(scriptPath, language, settings),
+    }
+}
+
+function writeTempScript (code: string, language: string): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs') as typeof import('fs')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const os = require('os') as typeof import('os')
+    const extension = language.replace(/[^a-z0-9_-]/gi, '') || 'txt'
+    const scriptPath = path.join(os.tmpdir(), `tabby-cmd-editor-${Date.now()}.${extension}`)
+    const normalized = code.replace(/\r\n?/g, '\n')
+    fs.writeFileSync(scriptPath, normalized.endsWith('\n') ? normalized : `${normalized}\n`, 'utf8')
+    return scriptPath
 }
 
 function formatBytes (bytes: number): string {
