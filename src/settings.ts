@@ -294,6 +294,8 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
         .command-editor-settings {
             display: flex;
             flex-direction: column;
+            container-name: command-editor-settings;
+            container-type: inline-size;
             gap: 28px;
             max-width: 980px;
         }
@@ -401,6 +403,7 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
 
         .command-editor-config-panel-header {
             display: flex;
+            flex-wrap: wrap;
             gap: 12px;
             align-items: flex-start;
             justify-content: space-between;
@@ -501,13 +504,13 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
             font-size: 13px;
         }
 
-        @media (max-width: 1050px) {
+        @container command-editor-settings (max-width: 900px) {
             .command-editor-run-config-grid {
                 grid-template-columns: 1fr;
             }
         }
 
-        @media (max-width: 820px) {
+        @container command-editor-settings (max-width: 620px) {
             .command-editor-shortcut-row,
             .command-editor-shortcut-table.compact .command-editor-shortcut-row {
                 grid-template-columns: 1fr;
@@ -518,9 +521,22 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                 grid-template-columns: 1fr;
             }
 
+            .alias-list .command-editor-list-row:not(.list-header) {
+                grid-template-columns: minmax(90px, 1fr) minmax(110px, 1fr) 32px;
+            }
+
             .command-editor-command-help,
             .command-editor-list-row.list-header.command-editor-list-row {
                 display: none;
+            }
+
+            .command-editor-config-actions {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .command-editor-config-actions .btn {
+                align-self: flex-end;
             }
         }
     `],

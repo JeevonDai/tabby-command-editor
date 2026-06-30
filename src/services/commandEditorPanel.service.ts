@@ -2110,6 +2110,8 @@ export class CommandEditorPanelService {
                 z-index: 100;
                 display: flex;
                 flex-direction: column;
+                container-name: command-editor-panel;
+                container-type: inline-size;
                 overflow: hidden;
                 background: var(--bs-body-bg, rgba(16, 18, 22, 0.96));
                 backdrop-filter: blur(6px);
@@ -2163,6 +2165,7 @@ export class CommandEditorPanelService {
 
             #${BAR_ID} .command-editor-panel-toolbar {
                 display: flex;
+                flex-wrap: wrap;
                 gap: 8px;
                 padding: 6px 8px;
                 align-items: center;
@@ -2172,10 +2175,17 @@ export class CommandEditorPanelService {
 
             #${BAR_ID} .command-editor-panel-send-group {
                 display: flex;
+                flex-wrap: wrap;
                 align-items: center;
                 gap: 4px;
                 margin-left: auto;
                 flex: none;
+            }
+
+            #${BAR_ID} .command-editor-panel-toolbar > .btn,
+            #${BAR_ID} .command-editor-panel-send-group > .btn {
+                flex: none;
+                white-space: nowrap;
             }
 
             #${BAR_ID} .command-editor-panel-file-picker {
@@ -2185,6 +2195,36 @@ export class CommandEditorPanelService {
                 flex: 1;
                 min-width: 120px;
                 position: relative;
+            }
+
+            @container command-editor-panel (max-width: 720px) {
+                #${BAR_ID} .command-editor-panel-file-picker {
+                    order: 10;
+                    flex-basis: 100%;
+                    min-width: 0;
+                }
+
+                #${BAR_ID} .command-editor-panel-send-group {
+                    margin-left: auto;
+                }
+            }
+
+            @container command-editor-panel (max-width: 480px) {
+                #${BAR_ID} .command-editor-panel-toolbar {
+                    gap: 5px;
+                    padding: 5px 6px;
+                }
+
+                #${BAR_ID} .command-editor-panel-send-group {
+                    order: 20;
+                    width: 100%;
+                    margin-left: 0;
+                    justify-content: flex-end;
+                }
+
+                #${BAR_ID} .command-editor-panel-file-picker {
+                    order: 10;
+                }
             }
 
             #${BAR_ID} .command-editor-panel-file-history-button {
