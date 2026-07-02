@@ -15,6 +15,7 @@ import {
 } from '../pythonCodeBlockRunner'
 import { CodeBlockRunSettings, resolveCodeBlockRunSettings } from '../codeBlockRunConfig'
 import { t } from '../locale'
+import { findCommandHistorySuggestions } from '../commandHistoryCompletion'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
 
@@ -105,6 +106,9 @@ export class CommandEditorPanelService {
     private symbolHighlightIds: string[] = []
     private targetTerminalTab: BaseTerminalTabComponent<any> | null = null
     private suppressResizeHandler = false
+    private commandHistoryCompletionIndex = 0
+    private commandHistoryCompletionSignature: string | null = null
+    private commandHistoryCompletionProvider: monaco.IDisposable | null = null
     private panelResizeDrag: {
         active: boolean
         startPos: number
@@ -1286,6 +1290,7 @@ export class CommandEditorPanelService {
             tabSize: 2,
             insertSpaces: true,
             quickSuggestions: false,
+            inlineSuggest: { enabled: true },
             scrollbar: {
                 vertical: 'auto',
                 horizontal: 'hidden',
@@ -1320,6 +1325,7 @@ export class CommandEditorPanelService {
         sendLoopCountInput.addEventListener('change', () => this.persistSendLoopCountInput(sendLoopCountInput))
 
         this.setupEditorKeybindings(editor)
+        this.setupCommandHistoryCompletion(editor)
         this.setupRightClickSendLine(editor, editorHost)
 
         editor.onDidChangeCursorSelection((event) => {
@@ -1813,6 +1819,25 @@ export class CommandEditorPanelService {
         }
         const editorContext = 'editorTextFocus && !findWidgetVisible && !suggestWidgetVisible'
 
+        editor.addCommand(
+            monaco.KeyCode.Tab,
+            () => {
+                if (!this.acceptCommandHistoryCompletion(editor)) {
+                    editor.trigger('keyboard', 'tab', null)
+                }
+            },
+            editorContext,
+        )
+        editor.addCommand(
+            monaco.KeyMod.Shift | monaco.KeyCode.Tab,
+            () => {
+                if (!this.selectNextCommandHistoryCompletion(editor)) {
+                    editor.trigger('keyboard', 'outdent', null)
+                }
+            },
+            editorContext,
+        )
+
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
         editor.addCommand(monaco.KeyCode.F6, () => this.cancelLoopSend(), editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
@@ -1870,6 +1895,90 @@ export class CommandEditorPanelService {
         const noop = () => { /* command palette disabled */ }
         editor.addCommand(monaco.KeyCode.F1, noop)
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP, noop)
+    }
+
+    private setupCommandHistoryCompletion (
+        editor: monaco.editor.IStandaloneCodeEditor,
+    ): void {
+        this.commandHistoryCompletionProvider?.dispose()
+        this.commandHistoryCompletionProvider = monaco.languages.registerInlineCompletionsProvider(
+            COMMAND_EDITOR_LANGUAGE,
+            {
+                provideInlineCompletions: (model, position) => {
+                    if (model !== editor.getModel() || !this.hasSingleEmptySelection(editor)) {
+                        return { items: [] }
+                    }
+                    const suggestion = findCommandHistorySuggestions(model, position)
+                    if (!suggestion) {
+                        this.resetCommandHistoryCompletion()
+                        return { items: [] }
+                    }
+                    const index = this.getCommandHistoryCompletionIndex(suggestion.signature, suggestion.candidates.length)
+                    return {
+                        items: [{
+                            insertText: suggestion.candidates[index],
+                            range: suggestion.range,
+                        }],
+                    }
+                },
+                freeInlineCompletions: () => { /* no resources to release */ },
+            },
+        )
+    }
+
+    private acceptCommandHistoryCompletion (editor: monaco.editor.IStandaloneCodeEditor): boolean {
+        const suggestion = this.getCommandHistorySuggestion(editor)
+        if (!suggestion) {
+            return false
+        }
+        const index = this.getCommandHistoryCompletionIndex(suggestion.signature, suggestion.candidates.length)
+        editor.executeEdits('command-history-completion', [{
+            range: suggestion.range,
+            text: suggestion.candidates[index],
+            forceMoveMarkers: true,
+        }])
+        this.resetCommandHistoryCompletion()
+        return true
+    }
+
+    private selectNextCommandHistoryCompletion (editor: monaco.editor.IStandaloneCodeEditor): boolean {
+        const suggestion = this.getCommandHistorySuggestion(editor)
+        if (!suggestion) {
+            return false
+        }
+        const index = this.getCommandHistoryCompletionIndex(suggestion.signature, suggestion.candidates.length)
+        this.commandHistoryCompletionIndex = (index + 1) % suggestion.candidates.length
+        editor.trigger('keyboard', 'editor.action.inlineSuggest.trigger', null)
+        return true
+    }
+
+    private getCommandHistorySuggestion (editor: monaco.editor.IStandaloneCodeEditor) {
+        const model = editor.getModel()
+        const position = editor.getPosition()
+        if (!model || !position || !this.hasSingleEmptySelection(editor)) {
+            this.resetCommandHistoryCompletion()
+            return null
+        }
+        return findCommandHistorySuggestions(model, position)
+    }
+
+    private hasSingleEmptySelection (editor: monaco.editor.IStandaloneCodeEditor): boolean {
+        const selections = editor.getSelections()
+        return selections?.length === 1 && selections[0].isEmpty()
+    }
+
+    private getCommandHistoryCompletionIndex (signature: string, candidateCount: number): number {
+        if (this.commandHistoryCompletionSignature !== signature) {
+            this.commandHistoryCompletionSignature = signature
+            this.commandHistoryCompletionIndex = 0
+        }
+        this.commandHistoryCompletionIndex %= candidateCount
+        return this.commandHistoryCompletionIndex
+    }
+
+    private resetCommandHistoryCompletion (): void {
+        this.commandHistoryCompletionSignature = null
+        this.commandHistoryCompletionIndex = 0
     }
 
     /**

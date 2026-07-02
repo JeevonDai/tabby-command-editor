@@ -54,6 +54,8 @@ const GLOBAL_SHORTCUTS: Array<{ id: string; name: string }> = [
 
 const EDITOR_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Right-click', name: 'Right-click (when enabled in settings)', detail: 'Send the line under the mouse cursor to the terminal; replaces the context menu' },
+    { keys: 'Tab', name: 'Complete or indent', detail: 'Accept the suggested command from earlier in this file; indent when no suggestion is available' },
+    { keys: 'Shift+Tab', name: 'Next completion or outdent', detail: 'Cycle command-history suggestions; outdent when no suggestion is available' },
     { keys: 'Enter / F8', name: 'Send', detail: 'Send current line or selection (blocked inside code blocks)' },
     { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends and background scripts' },
     { keys: 'F7', name: 'Go to next highlighted symbol', detail: 'Monaco built-in (plugin does not bind F7)' },
