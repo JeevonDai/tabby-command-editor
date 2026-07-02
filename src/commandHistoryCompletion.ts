@@ -9,8 +9,8 @@ export interface CommandHistorySuggestion {
 }
 
 /**
- * Find command lines above the cursor which extend the text currently being typed.
- * Results are de-duplicated with the most recently used command first.
+ * Find command lines anywhere in the current file which extend the text being typed.
+ * Results are de-duplicated and ordered by distance from the current line.
  */
 export function findCommandHistorySuggestions (
     model: monaco.editor.ITextModel,
@@ -30,7 +30,17 @@ export function findCommandHistorySuggestions (
 
     const candidates: string[] = []
     const seen = new Set<string>()
-    for (let lineNumber = position.lineNumber - 1; lineNumber >= 1; lineNumber--) {
+    const lineNumbers = Array.from(
+        { length: model.getLineCount() },
+        (_, index) => index + 1,
+    )
+        .filter(lineNumber => lineNumber !== position.lineNumber)
+        .sort((left, right) => {
+            const distance = Math.abs(left - position.lineNumber) - Math.abs(right - position.lineNumber)
+            return distance || left - right
+        })
+
+    for (const lineNumber of lineNumbers) {
         const candidate = model.getLineContent(lineNumber).trim()
         if (
             candidate.length <= prefix.length ||
