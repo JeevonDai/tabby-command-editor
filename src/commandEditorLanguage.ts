@@ -17,6 +17,48 @@ export const COMMAND_EDITOR_THEME_LIGHT = 'tabby-command-editor-light'
 
 let registered = false
 
+const DARK_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
+    { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
+    { token: 'comment.markdown', foreground: '808080', fontStyle: 'italic' },
+    { token: 'string.code-fence', foreground: '808080' },
+    { token: 'source.code', foreground: 'D4D4D4' },
+    { token: 'markup.heading.1', foreground: '569CD6', fontStyle: 'bold' },
+    { token: 'markup.heading.2', foreground: '4FC1FF', fontStyle: 'bold' },
+    { token: 'markup.heading.3', foreground: '4EC9B0', fontStyle: 'bold' },
+    { token: 'markup.heading.4', foreground: 'C586C0', fontStyle: 'bold' },
+    { token: 'markup.heading.5', foreground: 'DCDCAA', fontStyle: 'bold' },
+    { token: 'markup.heading.6', foreground: '9CDCFE', fontStyle: 'bold' },
+    { token: 'string', foreground: 'CE9178' },
+    { token: 'string.escape', foreground: 'D7BA7D' },
+    { token: 'string.invalid', foreground: 'F44747' },
+    { token: 'keyword', foreground: 'C586C0' },
+    { token: 'variable.predefined', foreground: '9CDCFE' },
+    { token: 'number', foreground: 'B5CEA8' },
+    { token: 'attribute.name', foreground: '9CDCFE' },
+    { token: 'delimiter', foreground: 'D4D4D4' },
+]
+
+const LIGHT_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
+    { token: 'comment', foreground: '008000', fontStyle: 'italic' },
+    { token: 'comment.markdown', foreground: '6E7781', fontStyle: 'italic' },
+    { token: 'string.code-fence', foreground: '6E7781' },
+    { token: 'source.code', foreground: '24292F' },
+    { token: 'markup.heading.1', foreground: '0550AE', fontStyle: 'bold' },
+    { token: 'markup.heading.2', foreground: '0969DA', fontStyle: 'bold' },
+    { token: 'markup.heading.3', foreground: '116329', fontStyle: 'bold' },
+    { token: 'markup.heading.4', foreground: '6639BA', fontStyle: 'bold' },
+    { token: 'markup.heading.5', foreground: 'BC4C00', fontStyle: 'bold' },
+    { token: 'markup.heading.6', foreground: '57606A', fontStyle: 'bold' },
+    { token: 'string', foreground: 'A31515' },
+    { token: 'string.escape', foreground: '795E26' },
+    { token: 'string.invalid', foreground: 'CD3131' },
+    { token: 'keyword', foreground: 'AF00DB' },
+    { token: 'variable.predefined', foreground: '001080' },
+    { token: 'number', foreground: '098658' },
+    { token: 'attribute.name', foreground: '001080' },
+    { token: 'delimiter', foreground: '393939' },
+]
+
 const jsonLanguage: monaco.languages.IMonarchLanguage = {
     defaultToken: '',
     tokenizer: {
@@ -156,56 +198,38 @@ export function registerCommandEditorLanguage (): void {
     monaco.editor.defineTheme(COMMAND_EDITOR_THEME_DARK, {
         base: 'vs-dark',
         inherit: true,
-        rules: [
-            { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
-            { token: 'comment.markdown', foreground: '808080', fontStyle: 'italic' },
-            { token: 'string.code-fence', foreground: '808080' },
-            { token: 'source.code', foreground: 'D4D4D4' },
-            { token: 'markup.heading.1', foreground: '569CD6', fontStyle: 'bold' },
-            { token: 'markup.heading.2', foreground: '4FC1FF', fontStyle: 'bold' },
-            { token: 'markup.heading.3', foreground: '4EC9B0', fontStyle: 'bold' },
-            { token: 'markup.heading.4', foreground: 'C586C0', fontStyle: 'bold' },
-            { token: 'markup.heading.5', foreground: 'DCDCAA', fontStyle: 'bold' },
-            { token: 'markup.heading.6', foreground: '9CDCFE', fontStyle: 'bold' },
-            { token: 'string', foreground: 'CE9178' },
-            { token: 'string.escape', foreground: 'D7BA7D' },
-            { token: 'string.invalid', foreground: 'F44747' },
-            { token: 'keyword', foreground: 'C586C0' },
-            { token: 'variable.predefined', foreground: '9CDCFE' },
-            { token: 'number', foreground: 'B5CEA8' },
-            { token: 'attribute.name', foreground: '9CDCFE' },
-            { token: 'delimiter', foreground: 'D4D4D4' },
-        ],
+        rules: DARK_TOKEN_RULES,
         colors: {},
     })
 
     monaco.editor.defineTheme(COMMAND_EDITOR_THEME_LIGHT, {
         base: 'vs',
         inherit: true,
-        rules: [
-            { token: 'comment', foreground: '008000', fontStyle: 'italic' },
-            { token: 'comment.markdown', foreground: '6E7781', fontStyle: 'italic' },
-            { token: 'string.code-fence', foreground: '6E7781' },
-            { token: 'source.code', foreground: '24292F' },
-            { token: 'markup.heading.1', foreground: '0550AE', fontStyle: 'bold' },
-            { token: 'markup.heading.2', foreground: '0969DA', fontStyle: 'bold' },
-            { token: 'markup.heading.3', foreground: '116329', fontStyle: 'bold' },
-            { token: 'markup.heading.4', foreground: '6639BA', fontStyle: 'bold' },
-            { token: 'markup.heading.5', foreground: 'BC4C00', fontStyle: 'bold' },
-            { token: 'markup.heading.6', foreground: '57606A', fontStyle: 'bold' },
-            { token: 'string', foreground: 'A31515' },
-            { token: 'string.escape', foreground: '795E26' },
-            { token: 'string.invalid', foreground: 'CD3131' },
-            { token: 'keyword', foreground: 'AF00DB' },
-            { token: 'variable.predefined', foreground: '001080' },
-            { token: 'number', foreground: '098658' },
-            { token: 'attribute.name', foreground: '001080' },
-            { token: 'delimiter', foreground: '393939' },
-        ],
+        rules: LIGHT_TOKEN_RULES,
         colors: {},
     })
 }
 
 export function resolveCommandEditorTheme (preferDark: boolean): string {
     return preferDark ? COMMAND_EDITOR_THEME_DARK : COMMAND_EDITOR_THEME_LIGHT
+}
+
+export function defineCommandEditorThemeColors (
+    preferDark: boolean,
+    background: string,
+    foreground: string,
+): string {
+    const name = resolveCommandEditorTheme(preferDark)
+    monaco.editor.defineTheme(name, {
+        base: preferDark ? 'vs-dark' : 'vs',
+        inherit: true,
+        rules: preferDark ? DARK_TOKEN_RULES : LIGHT_TOKEN_RULES,
+        colors: {
+            'editor.background': background,
+            'editor.foreground': foreground,
+            'editorGutter.background': background,
+            'editorStickyScroll.background': background,
+        },
+    })
+    return name
 }

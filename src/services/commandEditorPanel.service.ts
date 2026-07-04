@@ -1,9 +1,9 @@
 import { Injectable, NgZone } from '@angular/core'
 import { Subscription } from 'rxjs'
-import { AppService, ConfigService, LocaleService, NotificationsService, PlatformService, SplitTabComponent, TranslateService } from 'tabby-core'
+import { AppService, ConfigService, LocaleService, NotificationsService, PlatformService, SplitTabComponent, ThemesService, TranslateService } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
 import { splitMarkdownCommentNewline, stripComments, toggleCodeFence, toggleSmartComment } from '../commandComments'
-import { COMMAND_EDITOR_LANGUAGE, registerCommandEditorLanguage, resolveCommandEditorTheme } from '../commandEditorLanguage'
+import { COMMAND_EDITOR_LANGUAGE, defineCommandEditorThemeColors, registerCommandEditorLanguage } from '../commandEditorLanguage'
 import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker, pruneQuickAccessProviders } from '../commandOutline'
 import {
     CodeExecution,
@@ -352,6 +352,7 @@ export class CommandEditorPanelService {
         private translate: TranslateService,
         private locale: LocaleService,
         private zone: NgZone,
+        private themes: ThemesService,
     ) {
         document.addEventListener('keydown', this.onPanelHotkeyCapture, true)
         document.addEventListener('keydown', this.onDocumentKeyCapture, true)
@@ -365,6 +366,7 @@ export class CommandEditorPanelService {
         this.config.changed$.subscribe(() => {
             const editor = this.panel?.editor
             if (editor) {
+                this.applyEditorTheme()
                 this.applyRightClickSendLineEditorOptions(editor)
                 const model = editor.getModel()
                 if (model) {
@@ -373,6 +375,9 @@ export class CommandEditorPanelService {
                 }
             }
             this.refreshBlockRunModeButton()
+        })
+        this.themes.themeChanged$.subscribe(() => {
+            requestAnimationFrame(() => this.applyEditorTheme())
         })
     }
 
@@ -3607,15 +3612,59 @@ export class CommandEditorPanelService {
     }
 
     private getEditorTheme (): string {
+        const rootStyle = getComputedStyle(document.documentElement)
+        const bodyStyle = getComputedStyle(document.body)
         const scheme = this.config.store.terminal?.colorScheme
-        if (scheme?.background?.startsWith('#')) {
-            const bg = scheme.background
-            const r = parseInt(bg.slice(1, 3), 16)
-            const g = parseInt(bg.slice(3, 5), 16)
-            const b = parseInt(bg.slice(5, 7), 16)
-            const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-            return resolveCommandEditorTheme(luminance < 0.5)
+        const background = this.normalizeCssColor(
+            rootStyle.getPropertyValue('--bs-body-bg') || bodyStyle.backgroundColor || scheme?.background,
+        ) ?? '#1e1e1e'
+        const foreground = this.normalizeCssColor(
+            rootStyle.getPropertyValue('--bs-body-color') || bodyStyle.color || scheme?.foreground,
+        ) ?? (this.isDarkColor(background) ? '#d4d4d4' : '#24292f')
+        return defineCommandEditorThemeColors(this.isDarkColor(background), background, foreground)
+    }
+
+    private applyEditorTheme (): void {
+        if (!this.panel?.editor) {
+            return
         }
-        return resolveCommandEditorTheme(true)
+        monaco.editor.setTheme(this.getEditorTheme())
+    }
+
+    private normalizeCssColor (value: string | undefined): string | null {
+        const color = value?.trim()
+        if (!color) {
+            return null
+        }
+        const hex = color.match(/^#([\da-f]{3,8})$/i)
+        if (hex) {
+            const digits = hex[1]
+            if (digits.length === 3 || digits.length === 4) {
+                return `#${[...digits].map(char => char + char).join('')}`
+            }
+            return `#${digits}`
+        }
+        const rgb = color.match(/^rgba?\(\s*(\d+(?:\.\d+)?)\s*[, ]\s*(\d+(?:\.\d+)?)\s*[, ]\s*(\d+(?:\.\d+)?)(?:\s*[,/]\s*(\d*\.?\d+)%?)?\s*\)$/i)
+        if (!rgb) {
+            return null
+        }
+        const channels = rgb.slice(1, 4).map(part => this.toHexChannel(Number(part)))
+        if (rgb[4] === undefined) {
+            return `#${channels.join('')}`
+        }
+        const alpha = Math.max(0, Math.min(1, Number(rgb[4])))
+        return `#${channels.join('')}${this.toHexChannel(alpha * 255)}`
+    }
+
+    private toHexChannel (value: number): string {
+        return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')
+    }
+
+    private isDarkColor (color: string): boolean {
+        const hex = color.slice(1)
+        const r = parseInt(hex.slice(0, 2), 16)
+        const g = parseInt(hex.slice(2, 4), 16)
+        const b = parseInt(hex.slice(4, 6), 16)
+        return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5
     }
 }
