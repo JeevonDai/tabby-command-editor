@@ -118,7 +118,7 @@ export function registerCommandEditorLanguage (): void {
                 [/^\s*```(?:yaml|yml)\s*$/i, { token: 'string.code-fence', next: '@codeblock', nextEmbedded: 'yaml' }],
                 [/^\s*```(?:powershell|ps1|pwsh)\s*$/i, { token: 'string.code-fence', next: '@codeblock', nextEmbedded: 'powershell' }],
                 [/^\s*```(?:bash|sh|shell|zsh)\s*$/i, { token: 'string.code-fence', next: '@codeblock', nextEmbedded: 'shell' }],
-                [/^\s*```(?:python|py)\s*$/i, { token: 'string.code-fence', next: '@codeblock', nextEmbedded: 'python' }],
+                [/^\s*```(?:python|py|tabby)\s*$/i, { token: 'string.code-fence', next: '@codeblock', nextEmbedded: 'python' }],
                 [/^\s*```(?:c)\s*$/i, { token: 'string.code-fence', next: '@codeblock', nextEmbedded: 'c' }],
                 [/^\s*```(?:cpp|c\+\+|cc|cxx|h|hpp)\s*$/i, { token: 'string.code-fence', next: '@codeblock', nextEmbedded: 'cpp' }],
                 [/^\s*```[^\s`]*\s*$/, { token: 'string.code-fence', next: '@plainCodeblock' }],

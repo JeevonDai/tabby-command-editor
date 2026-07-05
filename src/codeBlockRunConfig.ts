@@ -20,6 +20,7 @@ export interface CommandEditorCodeBlockConfig {
 export const DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES: Record<string, ScriptLanguage> = {
     python: 'python',
     py: 'python',
+    tabby: 'python',
     bash: 'bash',
     sh: 'bash',
     shell: 'bash',

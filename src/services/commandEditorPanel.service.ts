@@ -6,14 +6,16 @@ import { splitMarkdownCommentNewline, stripComments, toggleCodeFence, toggleSmar
 import { COMMAND_EDITOR_LANGUAGE, defineCommandEditorThemeColors, registerCommandEditorLanguage } from '../commandEditorLanguage'
 import { registerMarkdownHeadingFeatures, showHeadingOutlinePicker, closeHeadingOutlinePicker, pruneQuickAccessProviders } from '../commandOutline'
 import {
+    CodeExecution,
+    decodeTabbySendLine,
     findRunnableCodeBlockAtCursor,
     findRunnableCodeBlockAtLine,
     resolveScriptLanguage,
     resolveScriptTerminalPayload,
+    runCodeBlock,
 } from '../pythonCodeBlockRunner'
 import { CodeBlockRunSettings, resolveCodeBlockRunSettings } from '../codeBlockRunConfig'
 import { t } from '../locale'
-import { TerminalPythonBridge } from '../terminalPythonBridge'
 import { findCommandHistorySuggestions } from '../commandHistoryCompletion'
 // @ts-ignore - monaco-editor types
 import * as monaco from 'monaco-editor'
@@ -53,6 +55,17 @@ interface LoopSendJob {
     previewEl: HTMLElement
 }
 
+interface TabbyRunJob {
+    id: number
+    terminal: BaseTerminalTabComponent<any>
+    terminalLabel: string
+    execution: CodeExecution
+    outputSubscription: Subscription
+    rootEl: HTMLElement
+    labelEl: HTMLElement
+    previewEl: HTMLElement
+}
+
 interface PanelState {
     root: HTMLElement
     resizeHandle: HTMLElement
@@ -64,8 +77,6 @@ interface PanelState {
     sendIntervalUnitSelect: HTMLSelectElement
     sendLoopCountInput: HTMLInputElement
     loopSendBtn: HTMLButtonElement
-    apiTargetSelect: HTMLSelectElement
-    apiTargetClearButton: HTMLButtonElement
     batchStatusContainer: HTMLElement
     filePath: string | null
     visible: boolean
@@ -83,14 +94,14 @@ export class CommandEditorPanelService {
     private tabAreaObserver: ResizeObserver | null = null
     private activeTabSubscription: Subscription | null = null
     private nextLoopSendJobId = 0
+    private nextTabbyRunJobId = 0
     private nextLoopSendColorIndex = 0
     private readonly loopSendJobs = new Map<number, LoopSendJob>()
+    private readonly tabbyRunJobs = new Map<number, TabbyRunJob>()
     private readonly terminalLoopColors = new Map<BaseTerminalTabComponent<any>, number>()
     private savedEditorSelection: monaco.Selection | null = null
     private symbolHighlightIds: string[] = []
     private targetTerminalTab: BaseTerminalTabComponent<any> | null = null
-    private apiTargetTerminal: BaseTerminalTabComponent<any> | null = null
-    private readonly terminalPythonBridge = new TerminalPythonBridge()
     private suppressResizeHandler = false
     private commandHistoryCompletionIndex = 0
     private commandHistoryCompletionSignature: string | null = null
@@ -173,9 +184,6 @@ export class CommandEditorPanelService {
         }
         if (this.matchesConfiguredHotkey(event, 'open-command-editor-outline')) {
             return () => this.openOutlinePicker()
-        }
-        if (this.matchesConfiguredHotkey(event, 'bind-command-editor-python-api')) {
-            return () => this.bindCurrentTerminalForPythonApi()
         }
         return null
     }
@@ -703,7 +711,83 @@ export class CommandEditorPanelService {
             return
         }
 
-        await this.runScriptBlockInTerminal(block, terminal, state)
+        if (block.language.toLowerCase() === 'tabby') {
+            await this.runTabbyBlockInBackground(block.code, terminal, state)
+        } else {
+            await this.runScriptBlockInTerminal(block, terminal, state)
+        }
+    }
+
+    private async runTabbyBlockInBackground (
+        code: string,
+        terminal: BaseTerminalTabComponent<any>,
+        state: PanelState,
+    ): Promise<void> {
+        if (!terminal.session) {
+            this.notifications.error(t(this.translate, this.locale, 'Terminal session not ready'))
+            return
+        }
+
+        const jobId = ++this.nextTabbyRunJobId
+        const terminalLabel = this.getTerminalLabel(terminal)
+        const ui = this.createTabbyRunJobElement(state, jobId, terminalLabel)
+        const execution = runCodeBlock(
+            code,
+            'tabby',
+            line => {
+                const job = this.tabbyRunJobs.get(jobId)
+                if (!job) return
+                const command = decodeTabbySendLine(line)
+                if (command !== null) {
+                    if (command.trim() && this.isTerminalTabAlive(terminal) && terminal.session) {
+                        this.sendToTerminal(terminal, command)
+                    }
+                    return
+                }
+                this.appendTabbyRunOutput(job, line)
+            },
+            line => {
+                const job = this.tabbyRunJobs.get(jobId)
+                if (job) this.appendTabbyRunOutput(job, line)
+            },
+            undefined,
+            undefined,
+            {
+                ...this.getCodeBlockRunSettings(),
+                languageAliases: {
+                    ...this.getCodeBlockRunSettings().languageAliases,
+                    tabby: 'python',
+                },
+            },
+        )
+        const outputSubscription = terminal.output$.subscribe(data => execution.writeTerminalOutput(data))
+        this.tabbyRunJobs.set(jobId, {
+            id: jobId,
+            terminal,
+            terminalLabel,
+            execution,
+            outputSubscription,
+            rootEl: ui.root,
+            labelEl: ui.label,
+            previewEl: ui.preview,
+        })
+        this.syncBatchStatusContainer(state)
+        state.editor.layout()
+
+        try {
+            await execution.promise
+            const job = this.tabbyRunJobs.get(jobId)
+            if (job) job.labelEl.textContent = 'Tabby · completed'
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            const job = this.tabbyRunJobs.get(jobId)
+            if (job && message !== 'Script execution cancelled') {
+                this.appendTabbyRunOutput(job, `Error: ${message}`)
+                job.labelEl.textContent = 'Tabby · failed'
+            }
+        } finally {
+            window.setTimeout(() => this.removeTabbyRunJob(jobId, false), 1200)
+        }
     }
 
     private async runScriptBlockInTerminal (
@@ -726,15 +810,7 @@ export class CommandEditorPanelService {
         }
 
         const terminalLabel = this.getTerminalLabel(terminal)
-        let binding
-        if (scriptLanguage === 'python' && /\btabby\s*\./.test(block.code)) {
-            if (!this.apiTargetTerminal || !this.isTerminalTabAlive(this.apiTargetTerminal)) {
-                this.notifications.error(t(this.translate, this.locale, 'Select a Python API target terminal'))
-                return
-            }
-            binding = await this.terminalPythonBridge.bind(this.apiTargetTerminal)
-        }
-        const payload = resolveScriptTerminalPayload(scriptLanguage, block.code, runSettings, binding)
+        const payload = resolveScriptTerminalPayload(scriptLanguage, block.code, runSettings)
         const languageLabel = this.getScriptLanguageLabel(block.language)
 
         try {
@@ -804,11 +880,12 @@ export class CommandEditorPanelService {
     }
 
     cancelLoopSend (): void {
-        if (this.loopSendJobs.size === 0) {
+        if (this.loopSendJobs.size === 0 && this.tabbyRunJobs.size === 0) {
             return
         }
 
         this.cancelAllLoopJobs()
+        this.cancelAllTabbyRuns()
     }
 
     private startLoopSendJob (
@@ -930,6 +1007,12 @@ export class CommandEditorPanelService {
         }
     }
 
+    private cancelAllTabbyRuns (): void {
+        for (const jobId of [...this.tabbyRunJobs.keys()]) {
+            this.removeTabbyRunJob(jobId, true)
+        }
+    }
+
     private getTerminalColorIndex (terminal: BaseTerminalTabComponent<any>): number {
         const existing = this.terminalLoopColors.get(terminal)
         if (existing !== undefined) {
@@ -952,6 +1035,12 @@ export class CommandEditorPanelService {
         for (const terminal of [...this.terminalLoopColors.keys()]) {
             if (!this.isTerminalTabAlive(terminal)) {
                 this.terminalLoopColors.delete(terminal)
+            }
+        }
+
+        for (const job of [...this.tabbyRunJobs.values()]) {
+            if (!this.isTerminalTabAlive(job.terminal)) {
+                this.removeTabbyRunJob(job.id, true)
             }
         }
 
@@ -1128,38 +1217,13 @@ export class CommandEditorPanelService {
 
         loopCountWrap.append(sendLoopCountInput, loopCountUnit)
 
-        const apiTargetControl = document.createElement('div')
-        apiTargetControl.className = 'command-editor-api-target-control'
-        apiTargetControl.dataset.placeholder = t(this.translate, this.locale, 'Bind Python API…')
-        const apiTargetSelect = document.createElement('select')
-        apiTargetSelect.className = 'form-select form-select-sm command-editor-api-target-select'
-        apiTargetSelect.title = t(this.translate, this.locale, 'Python API target terminal')
-        apiTargetSelect.addEventListener('change', () => {
-            const terminals = this.getAllTerminalTabs()
-            this.apiTargetTerminal = terminals[Number(apiTargetSelect.value)] ?? null
-            this.syncApiTargetControl()
-        })
-        const apiTargetClearButton = document.createElement('button')
-        apiTargetClearButton.type = 'button'
-        apiTargetClearButton.className = 'command-editor-api-target-clear'
-        apiTargetClearButton.textContent = '×'
-        apiTargetClearButton.title = t(this.translate, this.locale, 'Clear Python API binding')
-        apiTargetClearButton.addEventListener('click', () => {
-            this.apiTargetTerminal = null
-            this.refreshApiTargetSelect(this.panel!)
-            const selectable = apiTargetSelect as HTMLSelectElement & { showPicker?: () => void }
-            selectable.focus()
-            selectable.showPicker?.()
-        })
-        apiTargetControl.append(apiTargetSelect, apiTargetClearButton)
-
         const loopSendBtn = mkBtn('Loop or Run')
         loopSendBtn.title = 'F9 — Loop or Run; F6 stops loops; code blocks run as terminal files; selection: loop'
 
         const sendBtn = mkBtn('Send', true)
         sendBtn.title = 'Enter/F8 — comments stripped; line or selection; send immediately; code block: disabled (use Loop or Run / F9)'
 
-        sendGroup.append(intervalWrap, loopCountWrap, apiTargetControl, loopSendBtn, sendBtn)
+        sendGroup.append(intervalWrap, loopCountWrap, loopSendBtn, sendBtn)
         toolbar.append(openBtn, saveBtn, closeBtn, filePicker, sendGroup)
 
         const batchStatusContainer = document.createElement('div')
@@ -1246,14 +1310,11 @@ export class CommandEditorPanelService {
             sendIntervalUnitSelect,
             sendLoopCountInput,
             loopSendBtn,
-            apiTargetSelect,
-            apiTargetClearButton,
             batchStatusContainer,
             filePath: null,
             visible: false,
             panelSizePx: 0,
         }
-        this.refreshApiTargetSelect(this.panel)
         this.refreshFileHistoryDropdown(this.panel)
         this.applyPendingLastOpenedFile(this.panel)
         return this.panel
@@ -1555,6 +1616,7 @@ export class CommandEditorPanelService {
         closeHeadingOutlinePicker()
         this.clearSymbolLineHighlight(state.editor)
         this.cancelAllLoopJobs()
+        this.cancelAllTabbyRuns()
         this.onPanelResizeEnd()
         window.removeEventListener('mousemove', this.onPanelResizeMove)
         window.removeEventListener('mouseup', this.onPanelResizeEnd)
@@ -1621,7 +1683,6 @@ export class CommandEditorPanelService {
             }
 
             this.pruneDeadLoopJobs()
-            this.refreshApiTargetSelect(this.panel)
 
             this.startTabAreaObserver()
             this.fitAllTerminals()
@@ -2187,56 +2248,6 @@ export class CommandEditorPanelService {
                 flex: none;
             }
 
-            #${BAR_ID} .command-editor-api-target-control {
-                position: relative;
-                width: min(190px, 28vw);
-                min-width: 130px;
-            }
-
-            #${BAR_ID} .command-editor-api-target-control:not(.bound)::before {
-                content: attr(data-placeholder);
-                position: absolute;
-                z-index: 1;
-                left: 9px;
-                right: 28px;
-                top: 50%;
-                overflow: hidden;
-                transform: translateY(-50%);
-                color: var(--bs-secondary-color, #999);
-                font-size: 12px;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-                pointer-events: none;
-            }
-
-            #${BAR_ID} .command-editor-api-target-select {
-                width: 100%;
-                padding-right: 28px;
-            }
-
-            #${BAR_ID} .command-editor-api-target-control.bound .command-editor-api-target-select {
-                appearance: none;
-            }
-
-            #${BAR_ID} .command-editor-api-target-clear {
-                display: none;
-                position: absolute;
-                top: 50%;
-                right: 2px;
-                width: 25px;
-                height: 25px;
-                padding: 0;
-                transform: translateY(-50%);
-                border: 0;
-                background: transparent;
-                color: var(--bs-body-color, #dee2e6);
-                font-size: 18px;
-                line-height: 1;
-            }
-
-            #${BAR_ID} .command-editor-api-target-control.bound .command-editor-api-target-clear {
-                display: block;
-            }
 
             #${BAR_ID} .command-editor-panel-toolbar > .btn,
             #${BAR_ID} .command-editor-panel-send-group > .btn {
@@ -2435,39 +2446,6 @@ export class CommandEditorPanelService {
             #${BAR_ID} .command-editor-panel-interval-unit {
                 font-size: 11px;
                 color: var(--bs-secondary-color, #aaa);
-            }
-
-            #${BAR_ID} .command-editor-block-run-mode-btn {
-                flex: none;
-                min-width: 36px;
-                padding-left: 8px;
-                padding-right: 8px;
-                font-size: 11px;
-                font-weight: 600;
-                border-width: 1px;
-                border-style: solid;
-            }
-
-            #${BAR_ID} .command-editor-block-run-mode-btn.mode-terminal {
-                color: #fff;
-                background-color: #198754;
-                border-color: #157347;
-            }
-
-            #${BAR_ID} .command-editor-block-run-mode-btn.mode-terminal:hover {
-                background-color: #157347;
-                border-color: #146c43;
-            }
-
-            #${BAR_ID} .command-editor-block-run-mode-btn.mode-background {
-                color: #fff;
-                background-color: #6c757d;
-                border-color: #5c636a;
-            }
-
-            #${BAR_ID} .command-editor-block-run-mode-btn.mode-background:hover {
-                background-color: #5c636a;
-                border-color: #565e64;
             }
 
             #${BAR_ID} .command-editor-panel-batch-status-container {
@@ -3128,6 +3106,66 @@ export class CommandEditorPanelService {
         return { root, label, preview }
     }
 
+    private createTabbyRunJobElement (
+        state: PanelState,
+        jobId: number,
+        terminalLabel: string,
+    ): { root: HTMLElement; label: HTMLElement; preview: HTMLElement } {
+        const palette = LOOP_JOB_COLORS[jobId % LOOP_JOB_COLORS.length]
+        const root = document.createElement('div')
+        root.className = 'command-editor-panel-batch-job'
+        root.style.borderLeftColor = palette.border
+        root.style.background = palette.bg
+
+        const header = document.createElement('div')
+        header.className = 'command-editor-panel-batch-job-header'
+        const terminalBadge = document.createElement('span')
+        terminalBadge.className = 'command-editor-panel-batch-job-terminal'
+        terminalBadge.style.color = palette.accent
+        terminalBadge.textContent = terminalLabel
+        const label = document.createElement('span')
+        label.className = 'command-editor-panel-batch-job-label'
+        label.textContent = 'Tabby · running'
+        const close = document.createElement('button')
+        close.type = 'button'
+        close.className = 'command-editor-panel-batch-job-close btn btn-sm btn-outline-secondary'
+        close.textContent = '×'
+        close.title = 'Stop this Tabby background task'
+        close.addEventListener('mousedown', event => event.preventDefault())
+        close.addEventListener('click', () => this.removeTabbyRunJob(jobId, true))
+        header.append(terminalBadge, label, close)
+
+        const preview = document.createElement('div')
+        preview.className = 'command-editor-panel-batch-job-preview'
+        preview.style.setProperty('--loop-job-accent', palette.accent)
+        root.append(header, preview)
+        state.batchStatusContainer.append(root)
+        return { root, label, preview }
+    }
+
+    private appendTabbyRunOutput (job: TabbyRunJob, line: string): void {
+        if (!line) return
+        const row = document.createElement('div')
+        row.className = 'batch-line-current'
+        row.textContent = line
+        job.previewEl.append(row)
+        while (job.previewEl.childElementCount > 100) job.previewEl.firstElementChild?.remove()
+        job.previewEl.scrollTop = job.previewEl.scrollHeight
+    }
+
+    private removeTabbyRunJob (jobId: number, cancel: boolean): void {
+        const job = this.tabbyRunJobs.get(jobId)
+        if (!job) return
+        this.tabbyRunJobs.delete(jobId)
+        job.outputSubscription.unsubscribe()
+        if (cancel) job.execution.cancel()
+        job.rootEl.remove()
+        if (this.panel) {
+            this.syncBatchStatusContainer(this.panel)
+            this.panel.editor.layout()
+        }
+    }
+
     private moveEditorToLine (
         editor: monaco.editor.IStandaloneCodeEditor,
         lineNumber: number,
@@ -3358,62 +3396,6 @@ export class CommandEditorPanelService {
         }
 
         return null
-    }
-
-    private getAllTerminalTabs (): BaseTerminalTabComponent<any>[] {
-        const result: BaseTerminalTabComponent<any>[] = []
-        const visit = (tab: unknown): void => {
-            if (tab instanceof BaseTerminalTabComponent) {
-                result.push(tab)
-                return
-            }
-            if (tab instanceof SplitTabComponent) {
-                for (const child of tab.getAllTabs()) visit(child)
-            }
-        }
-        for (const tab of this.app.tabs) visit(tab)
-        return result
-    }
-
-    private refreshApiTargetSelect (state: PanelState): void {
-        const terminals = this.getAllTerminalTabs()
-        const previous = this.apiTargetTerminal
-        state.apiTargetSelect.textContent = ''
-        terminals.forEach((terminal, index) => {
-            const option = document.createElement('option')
-            option.value = String(index)
-            option.textContent = this.getTerminalLabel(terminal)
-            state.apiTargetSelect.append(option)
-        })
-        const selectedIndex = previous ? terminals.indexOf(previous) : -1
-        if (selectedIndex < 0) {
-            this.apiTargetTerminal = null
-            state.apiTargetSelect.selectedIndex = -1
-        } else {
-            state.apiTargetSelect.value = String(selectedIndex)
-        }
-        this.syncApiTargetControl()
-    }
-
-    private syncApiTargetControl (): void {
-        const state = this.panel
-        if (!state) return
-        const bound = !!this.apiTargetTerminal && this.isTerminalTabAlive(this.apiTargetTerminal)
-        state.apiTargetSelect.parentElement?.classList.toggle('bound', bound)
-        state.apiTargetClearButton.hidden = !bound
-    }
-
-    bindCurrentTerminalForPythonApi (): void {
-        const terminal = this.getActiveTerminalTab() ?? this.targetTerminalTab
-        if (!terminal || !this.isTerminalTabAlive(terminal)) {
-            this.notifications.info(t(this.translate, this.locale, 'No active terminal'))
-            return
-        }
-        this.apiTargetTerminal = terminal
-        if (this.panel) this.refreshApiTargetSelect(this.panel)
-        this.notifications.notice(t(this.translate, this.locale, 'Python API bound to {terminal}', {
-            terminal: this.getTerminalLabel(terminal),
-        }))
     }
 
     private getEditorTheme (): string {

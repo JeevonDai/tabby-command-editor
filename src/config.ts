@@ -22,7 +22,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             rightClickSendLine: false,
             /** Markdown fence language tag → interpreter family (python/bash/powershell). */
             codeBlockLanguageAliases: { ...DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES },
-            /** TF mode: one command string per interpreter; `{file}` = temp script path. */
+            /** One terminal command per interpreter; `{file}` = temp script path. */
             codeBlockTerminalCommands: { ...DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_UNIX },
         },
         hotkeys: {
@@ -36,7 +36,6 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             'send-command-editor-panel': [],
             'open-command-editor-outline': [],
             'open-command-editor-symbol': [],
-            'bind-command-editor-python-api': [],
             'command-tips': {
                 __nonStructural: true,
                 toggle: [],
@@ -61,7 +60,6 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-panel': ['F8'],
                 'open-command-editor-outline': ['Ctrl-Q'],
                 'open-command-editor-symbol': ['Alt-Shift-Enter'],
-                'bind-command-editor-python-api': ['F10'],
             },
         },
         [Platform.Windows]: {
@@ -79,7 +77,6 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-panel': ['F8'],
                 'open-command-editor-outline': ['Ctrl-Q'],
                 'open-command-editor-symbol': ['Alt-Shift-Enter'],
-                'bind-command-editor-python-api': ['F10'],
             },
         },
         [Platform.Linux]: {
@@ -94,7 +91,6 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-panel': ['F8'],
                 'open-command-editor-outline': ['Ctrl-Q'],
                 'open-command-editor-symbol': ['Alt-Shift-Enter'],
-                'bind-command-editor-python-api': ['F10'],
             },
         },
     }

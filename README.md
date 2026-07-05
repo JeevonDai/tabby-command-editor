@@ -56,15 +56,12 @@ print("hello from Python")
 ````
 
 Python, PowerShell and Bash blocks are written to temporary files and their configured
-`{file}` command is sent to the current terminal. There is no plugin-owned background
-runner. For Python blocks that use `tabby.*`, select a target in the Python API
-terminal dropdown. The generated Python file connects to the
-editor's loopback-only bridge using a per-run random token:
+`{file}` command is sent to the current terminal. A fenced `tabby` block is different:
+it runs as Python in the plugin background and automatically binds `tabby.send/read/expect`
+to the terminal that was focused when the task started. Its `print()` output scrolls
+in the task notification bar, and × stops the task:
 
-Press **F10** to bind the current terminal directly. Once bound, the dropdown arrow
-is replaced by ×; click × to clear the binding and reopen terminal selection.
-
-```python
+```tabby
 mark = tabby.mark()
 tabby.send("version")
 match = tabby.expect(r"Version:\s+(.+)", timeout=5, since=mark)
@@ -77,9 +74,8 @@ The injected methods are `tabby.send(text)`, `tabby.read(timeout=0)`,
 `tabby.expect(pattern, timeout=5, since=None, flags=0)`. An expect timeout raises
 `TimeoutError` and includes the last 4000 terminal characters in the error.
 
-`print()` and stderr stay in the terminal that runs the Python file. Only
-`tabby.send()` writes to the selected target terminal; receive APIs read that same
-target terminal's output.
+`print()` and stderr appear in the background task notification. Only `tabby.send()`
+writes to the automatically bound terminal; receive APIs read that terminal's output.
 
 ## Configuration
 

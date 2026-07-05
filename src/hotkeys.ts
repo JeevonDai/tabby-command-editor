@@ -43,10 +43,6 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
                 id: 'open-command-editor-symbol',
                 name: t(this.translate, this.locale, 'Go to symbol in command editor'),
             },
-            {
-                id: 'bind-command-editor-python-api',
-                name: t(this.translate, this.locale, 'Bind current terminal for Python API'),
-            },
         ]
     }
 }

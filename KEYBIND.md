@@ -11,7 +11,6 @@
 | `Shift + F7` | ****跳转到上一个高亮符号**** | Monaco 原生 |
 | `F8` | **Send** — 同上 | |
 | `F9` | **Loop or Run** — 代码块内运行整块；无选中时发送当前行并下移；有选中时循环发送 | 见第四节 |
-| `F10` | **绑定 Python API** | 将当前终端绑定为 Python API 的发送/回读目标 |
 | `Shift + Enter` | **Save** — 保存文档 | 与全局 `Ctrl+S` 等效 |
 | `Alt + Enter` | **换行** — 插入新行 | 若光标在 `<!-- -->` 注释内，自动拆分为多行块注释 |
 | `Ctrl + /` | **行注释** — 切换当前行注释 | Monaco 原生 |
@@ -52,7 +51,6 @@
 | `F5` | 重新加载文件 | `reload-command-editor-file` |
 | `F8` | **Send** | `send-command-editor-panel` |
 | `F9` | **Loop or Run**（代码块内即运行整块） | `send-command-editor-lines` |
-| `F10` | 绑定当前终端到 Python API | `bind-command-editor-python-api` |
 | `Alt + Shift + Enter` | 跳转到符号 | `open-command-editor-symbol` |
 
 
@@ -137,7 +135,7 @@ codeBlockTerminalCommands:
 
 **`{file}` 路径占位符**：配置里只写 `{file}`，勿手写 `/mnt/c/...`。Windows 下若命令含 `wsl`（如 `wsl bash {file}`），插件自动将路径转为 `'/mnt/c/...'` 并加引号；否则使用 Windows 原生路径。
 
-**自定义 WSL 发行版示例**（仅改 bash TF 命令）：
+**自定义 WSL 发行版示例**（仅修改 bash 终端文件命令）：
 
 ```yaml
 commandEditor:

@@ -4,8 +4,6 @@ import { ChildProcessWithoutNullStreams, execSync, spawn } from 'child_process'
 import * as path from 'path'
 import { StringDecoder } from 'string_decoder'
 import { Writable } from 'stream'
-import { injectTerminalBridgeApi } from './terminalPythonBridge'
-import type { PythonBridgeBinding } from './terminalPythonBridge'
 import {
     CodeBlockRunSettings,
     parseCommandLine,
@@ -149,7 +147,7 @@ export function runCodeBlock (
         }
 
         const scriptLanguage = resolved
-        const commandLine = settings.terminalCommands[scriptLanguage]?.trim()
+        const commandLine = scriptLanguage === 'python' ? 'python -u -' : ''
         if (!commandLine) {
             reject(new Error(notFoundMessage(scriptLanguage)))
             return
@@ -554,7 +552,7 @@ function quoteTerminalPath (scriptPath: string, template: string): string {
     return shellQuoteSingle(scriptPath)
 }
 
-/** How `{file}` is quoted before substituting into a TF command template. */
+/** How `{file}` is quoted before substituting into a terminal command template. */
 export function resolveFilePathStyle (template: string): 'wsl' | 'win' {
     if (process.platform === 'win32' && /\bwsl\b/i.test(template)) {
         return 'wsl'
@@ -562,14 +560,13 @@ export function resolveFilePathStyle (template: string): 'wsl' | 'win' {
     return 'win'
 }
 
-export function writeTempPythonScript (code: string, binding?: PythonBridgeBinding): string {
+export function writeTempPythonScript (code: string): string {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const fs = require('fs') as typeof import('fs')
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const os = require('os') as typeof import('os')
     const scriptPath = path.join(os.tmpdir(), `tabby-cmd-editor-${Date.now()}.py`)
-    const source = binding ? injectTerminalBridgeApi(code, binding) : code
-    const normalized = source.endsWith('\n') ? source : `${source}\n`
+    const normalized = code.endsWith('\n') ? code : `${code}\n`
     fs.writeFileSync(scriptPath, normalized, 'utf8')
     return scriptPath
 }
@@ -588,9 +585,8 @@ export function writeTempPowerShellScript (code: string): string {
 export function resolvePythonTerminalPayload (
     code: string,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
-    binding?: PythonBridgeBinding,
 ): TerminalRunPayload {
-    const scriptPath = writeTempPythonScript(code, binding)
+    const scriptPath = writeTempPythonScript(code)
     return {
         mode: 'line',
         command: buildTerminalCommand(scriptPath, 'python', settings),
@@ -612,13 +608,12 @@ export function resolveScriptTerminalPayload (
     language: ScriptLanguage,
     code: string,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
-    binding?: PythonBridgeBinding,
 ): TerminalRunPayload {
     switch (language) {
         case 'bash':
             return resolveBashTerminalPayload(code, settings)
         case 'python':
-            return resolvePythonTerminalPayload(code, settings, binding)
+            return resolvePythonTerminalPayload(code, settings)
         case 'powershell':
             return resolvePowerShellTerminalPayload(code, settings)
     }

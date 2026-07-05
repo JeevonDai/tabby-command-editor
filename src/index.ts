@@ -43,3 +43,5 @@ export default class CommandEditorModule {
 }
 
 export { CommandEditorPanelService }
+export { TerminalPythonBridge } from './terminalPythonBridge'
+export type { PythonBridgeBinding } from './terminalPythonBridge'

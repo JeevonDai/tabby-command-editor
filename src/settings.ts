@@ -47,7 +47,6 @@ const GLOBAL_SHORTCUTS: Array<{ id: string; name: string }> = [
     { id: 'send-command-editor-lines', name: 'Send or loop' },
     { id: 'cancel-command-editor-loop', name: 'Stop loop' },
     { id: 'send-command-editor-panel', name: 'Send' },
-    { id: 'bind-command-editor-python-api', name: 'Bind current terminal for Python API' },
 ]
 
 const EDITOR_SHORTCUTS: ShortcutRow[] = [
@@ -55,10 +54,9 @@ const EDITOR_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Tab', name: 'Complete or indent', detail: 'Accept the suggested command from anywhere in this file; indent when no suggestion is available' },
     { keys: 'Shift+Tab', name: 'Next completion or outdent', detail: 'Cycle command-history suggestions; outdent when no suggestion is available' },
     { keys: 'Enter / F8', name: 'Send', detail: 'Send current line or selection (blocked inside code blocks)' },
-    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends' },
+    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends and tabby background tasks' },
     { keys: 'F7', name: 'Go to next highlighted symbol', detail: 'Monaco built-in (plugin does not bind F7)' },
     { keys: 'F9', name: 'Loop or Run', detail: 'Comments stripped; code block: run as a terminal file; line: send and move down; selection: loop' },
-    { keys: 'F10', name: 'Bind Python API', detail: 'Bind the current terminal as the Python API send/read target' },
     { keys: 'Shift+Enter', name: 'Save', detail: 'Save current document' },
     { keys: 'Alt+Enter', name: 'New line', detail: 'Insert a line without sending' },
     { keys: 'Ctrl+/', name: 'Line comment', detail: 'Toggle line comment' },
@@ -71,7 +69,7 @@ const EDITOR_SHORTCUTS: ShortcutRow[] = [
 const FIND_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Enter / F7', name: 'Find next', detail: 'Next search match while find widget is open' },
     { keys: 'Shift+Enter / Shift+F7', name: 'Find previous', detail: 'Previous search match while find widget is open' },
-    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends' },
+    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends and tabby background tasks' },
     { keys: 'F8 / Ctrl+Enter', name: 'Send', detail: 'Send current line while search is open (blocked inside code blocks)' },
     { keys: 'F9 / Ctrl+Shift+Enter', name: 'Loop or Run', detail: 'Same as editor F9; in find mode sends match line and moves to the next line' },
 ]
@@ -132,10 +130,12 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                     <div><code>tabby.tail(last=4096)</code><span>{{ labels.apiTail }}</span></div>
                     <div><code>tabby.clear()</code><span>{{ labels.apiClear }}</span></div>
                 </div>
-                <pre class="command-editor-python-api-example">mark = tabby.mark()
+                <pre class="command-editor-python-api-example">&#96;&#96;&#96;tabby
+mark = tabby.mark()
 tabby.send("git version")
 match = tabby.expect(r"git version\s+([0-9][^\n]*)", timeout=5, since=mark)
-print("version:", match.group(1))</pre>
+print("version:", match.group(1))
+&#96;&#96;&#96;</pre>
             </section>
 
             <section>
@@ -601,7 +601,7 @@ export class CommandEditorSettingsTabComponent {
             rightClickSendLine: t(this.translate, this.locale, 'Right-click to send line'),
             rightClickSendLineDesc: t(this.translate, this.locale, 'When enabled, right-click in the editor sends the command on that line to the terminal instead of opening the context menu.'),
             pythonApi: t(this.translate, this.locale, 'Python API'),
-            pythonApiDesc: t(this.translate, this.locale, 'Select a target in the editor toolbar or press F10 to bind the current terminal. Only tabby.send() writes to the bound terminal.'),
+            pythonApiDesc: t(this.translate, this.locale, 'Use a fenced tabby block for background Python. It automatically binds send/read operations to the terminal focused when the task starts.'),
             apiSend: t(this.translate, this.locale, 'Send text as one or more commands to the bound terminal.'),
             apiMark: t(this.translate, this.locale, 'Return the current absolute position in the terminal receive buffer.'),
             apiExpect: t(this.translate, this.locale, 'Wait for a regular-expression match and return a Python re.Match object.'),
@@ -626,7 +626,7 @@ export class CommandEditorSettingsTabComponent {
             fenceAlias: t(this.translate, this.locale, 'Fence alias'),
             language: t(this.translate, this.locale, 'Language'),
             foregroundCommand: t(this.translate, this.locale, 'Foreground command'),
-            codeBlockTf: t(this.translate, this.locale, 'TF mode: command sent to terminal; {file} = quoted temp script path'),
+            codeBlockTf: t(this.translate, this.locale, 'Command sent to terminal; {file} = quoted temp script path'),
             add: t(this.translate, this.locale, 'Add'),
             addInterpreter: t(this.translate, this.locale, 'Add interpreter'),
             remove: t(this.translate, this.locale, 'Remove'),

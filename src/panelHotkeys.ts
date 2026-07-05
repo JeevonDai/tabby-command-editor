@@ -27,9 +27,6 @@ export class CommandEditorPanelHotkeyHandler {
                 case 'open-command-editor-symbol':
                     this.panelService.openSymbolPicker()
                     break
-                case 'bind-command-editor-python-api':
-                    this.panelService.bindCurrentTerminalForPythonApi()
-                    break
             }
         })
     }
