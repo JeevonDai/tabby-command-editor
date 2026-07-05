@@ -132,8 +132,8 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                 </div>
                 <pre class="command-editor-python-api-example">&#96;&#96;&#96;tabby
 mark = tabby.mark()
-tabby.send("git version")
-match = tabby.expect(r"git version\s+([0-9][^\n]*)", timeout=5, since=mark)
+tabby.send("git version")<br>
+match = tabby.expect(<br>    r"git version\s+([0-9][^\\n]*)", <br>    timeout=5, <br>    since=mark,<br>)
 print("version:", match.group(1))
 &#96;&#96;&#96;</pre>
             </section>

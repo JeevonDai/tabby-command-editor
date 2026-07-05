@@ -51,7 +51,7 @@ export const ZH_CN_TRANSLATIONS: Record<string, string> = {
     'Block run mode in command editor': '命令编辑器代码块运行模式',
     'Open Python log location': '打开 Python 日志位置',
     'Python API': 'Python API',
-    'Use a fenced tabby block for background Python. It automatically binds send/read operations to the terminal focused when the task starts.': '使用 tabby 围栏代码块在后台运行 Python；发送与回读会自动绑定任务启动时聚焦的终端。',
+    'Use a fenced tabby block for background Python. It automatically binds send/read operations to the terminal focused when the task starts.': '使用 tabby 围栏代码块在后台运行；发送与回读会自动绑定任务启动时聚焦的终端。',
     'Close': '关闭',
     'Show the Python API available in terminal-run code blocks': '查看终端文件方式运行的 Python 代码块 API',
     'Python API for terminal-run code blocks': '终端运行的 Python 代码块 API',
@@ -133,6 +133,12 @@ export const ZH_CN_TRANSLATIONS: Record<string, string> = {
     'When enabled, right-click in the editor sends the command on that line to the terminal instead of opening the context menu.': '开启后，在编辑器内右键会将鼠标所在行的命令发送到终端，不再弹出上下文菜单。',
     'Right-click (when enabled in settings)': '右键（需在设置中开启）',
     'Send the line under the mouse cursor to the terminal; replaces the context menu': '将鼠标所在行发送到终端；替代上下文菜单',
+
+    'Complete or indent': '补全或缩进',
+    'Accept the suggested command from anywhere in this file; indent when no suggestion is available': '接受文件中任意位置的命令建议；无建议时执行缩进',
+    'Next completion or outdent': '下一个补全或取消缩进',
+    'Cycle command-history suggestions; outdent when no suggestion is available': '循环历史命令建议；无建议时取消缩进',
+    'Comments stripped; code block: run as a terminal file; line: send and move down; selection: loop': '去除注释；代码块：作为终端文件运行；单行：发送并下移；选区：循环发送',
 }
 
 function interpolate (text: string, params?: Record<string, string | number>): string {
