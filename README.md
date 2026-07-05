@@ -45,37 +45,41 @@ npm install tabby-command-editor
 
 The edited command will replace your current prompt content. Press Enter when ready to execute.
 
-### Running Python code blocks
+### Running code blocks
 
 Place the cursor inside a fenced Python block and press **F9**, or click **Run**:
 
 ````markdown
 ```python
-print("echo hello from Python")
+print("hello from Python")
 ```
 ````
 
-Python runs locally in unbuffered mode with a 30-second output-inactivity timeout and
-a 1 MiB output limit. Each complete non-empty output line is sent to the active
-terminal immediately using the same behavior as **Send**: the line is followed by
-Enter and is therefore executed by the active shell. Python 3 must be available as
-`python3`, `python`, or Windows `py`.
+Python, PowerShell and Bash blocks are written to temporary files and their configured
+`{file}` command is sent to the current terminal. There is no plugin-owned background
+runner. For Python blocks that use `tabby.*`, select a target in the Python API
+terminal dropdown. The generated Python file connects to the
+editor's loopback-only bridge using a per-run random token:
 
-Each run is bound to the terminal that was active when it started, so changing tabs
-does not redirect its output. Multiple Python blocks can run concurrently. Active
-runs appear in the colored task bar with their bound terminal name; completed runs
-disappear automatically, and the close button stops an individual run.
-Python `logging` output (stderr) is always appended to the matching task bar preview,
-while `print()` output (stdout) continues to be sent to the bound terminal. Press
-**F10** to toggle logs between real-time notifications and the persistent
-per-run log files. Log filenames use the bound terminal name and run timestamp,
-for example `C__WINDOWS_System32_WindowsPowerShell_v1.0_powershell.exe-2026-06-21T19-53-55-696Z.log`.
-The log contents are written exactly as emitted by Python logging without an
-additional timestamp, terminal name, or job prefix. Press **Shift+Alt+G** to
-reveal the latest log file in its folder.
-These three shortcuts are available in Tabby's hotkey settings as **Run Python
-block in command editor**, **Toggle Python log mode in command editor**, and
-**Open Python log location**.
+Press **F10** to bind the current terminal directly. Once bound, the dropdown arrow
+is replaced by ×; click × to clear the binding and reopen terminal selection.
+
+```python
+mark = tabby.mark()
+tabby.send("version")
+match = tabby.expect(r"Version:\s+(.+)", timeout=5, since=mark)
+print("Detected version:", match.group(1))
+tabby.send("next command")
+```
+
+The injected methods are `tabby.send(text)`, `tabby.read(timeout=0)`,
+`tabby.tail(last=4096)`, `tabby.clear()`, `tabby.mark()`, and
+`tabby.expect(pattern, timeout=5, since=None, flags=0)`. An expect timeout raises
+`TimeoutError` and includes the last 4000 terminal characters in the error.
+
+`print()` and stderr stay in the terminal that runs the Python file. Only
+`tabby.send()` writes to the selected target terminal; receive APIs read that same
+target terminal's output.
 
 ## Configuration
 

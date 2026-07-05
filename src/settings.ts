@@ -16,7 +16,6 @@ interface LanguageAliasRow {
 interface RunCommandRow {
     language: ScriptLanguage
     terminalCommand: string
-    backgroundCommand: string
 }
 
 interface WritableConfigNode extends Record<string, unknown> {
@@ -48,8 +47,7 @@ const GLOBAL_SHORTCUTS: Array<{ id: string; name: string }> = [
     { id: 'send-command-editor-lines', name: 'Send or loop' },
     { id: 'cancel-command-editor-loop', name: 'Stop loop' },
     { id: 'send-command-editor-panel', name: 'Send' },
-    { id: 'toggle-command-editor-python-log', name: 'Block run mode' },
-    { id: 'open-command-editor-python-log', name: 'Open Python log location' },
+    { id: 'bind-command-editor-python-api', name: 'Bind current terminal for Python API' },
 ]
 
 const EDITOR_SHORTCUTS: ShortcutRow[] = [
@@ -57,10 +55,10 @@ const EDITOR_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Tab', name: 'Complete or indent', detail: 'Accept the suggested command from anywhere in this file; indent when no suggestion is available' },
     { keys: 'Shift+Tab', name: 'Next completion or outdent', detail: 'Cycle command-history suggestions; outdent when no suggestion is available' },
     { keys: 'Enter / F8', name: 'Send', detail: 'Send current line or selection (blocked inside code blocks)' },
-    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends and background scripts' },
+    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends' },
     { keys: 'F7', name: 'Go to next highlighted symbol', detail: 'Monaco built-in (plugin does not bind F7)' },
-    { keys: 'F9', name: 'Loop or Run', detail: 'Comments stripped; code block: run (terminal file or background per F10); line: send and move down (comment-only/blank: move only); selection: loop (interval × count)' },
-    { keys: 'F10', name: 'Block run mode', detail: 'Toggle TF (send file to terminal) / BG (background run, stderr→log)' },
+    { keys: 'F9', name: 'Loop or Run', detail: 'Comments stripped; code block: run as a terminal file; line: send and move down; selection: loop' },
+    { keys: 'F10', name: 'Bind Python API', detail: 'Bind the current terminal as the Python API send/read target' },
     { keys: 'Shift+Enter', name: 'Save', detail: 'Save current document' },
     { keys: 'Alt+Enter', name: 'New line', detail: 'Insert a line without sending' },
     { keys: 'Ctrl+/', name: 'Line comment', detail: 'Toggle line comment' },
@@ -73,10 +71,9 @@ const EDITOR_SHORTCUTS: ShortcutRow[] = [
 const FIND_SHORTCUTS: ShortcutRow[] = [
     { keys: 'Enter / F7', name: 'Find next', detail: 'Next search match while find widget is open' },
     { keys: 'Shift+Enter / Shift+F7', name: 'Find previous', detail: 'Previous search match while find widget is open' },
-    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends and background scripts' },
+    { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends' },
     { keys: 'F8 / Ctrl+Enter', name: 'Send', detail: 'Send current line while search is open (blocked inside code blocks)' },
     { keys: 'F9 / Ctrl+Shift+Enter', name: 'Loop or Run', detail: 'Same as editor F9; in find mode sends match line and moves to the next line' },
-    { keys: 'F10', name: 'Block run mode', detail: 'Toggle TF (send file to terminal) / BG (background run, stderr→log)' },
 ]
 
 @Injectable()
@@ -122,6 +119,23 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                     </label>
                     <p class="text-muted">{{ labels.rightClickSendLineDesc }}</p>
                 </div>
+            </section>
+
+            <section>
+                <h3>{{ labels.pythonApi }}</h3>
+                <p class="text-muted">{{ labels.pythonApiDesc }}</p>
+                <div class="command-editor-python-api-table">
+                    <div><code>tabby.send(text)</code><span>{{ labels.apiSend }}</span></div>
+                    <div><code>tabby.mark()</code><span>{{ labels.apiMark }}</span></div>
+                    <div><code>tabby.expect(pattern, timeout=5, since=None, flags=0)</code><span>{{ labels.apiExpect }}</span></div>
+                    <div><code>tabby.read(timeout=0)</code><span>{{ labels.apiRead }}</span></div>
+                    <div><code>tabby.tail(last=4096)</code><span>{{ labels.apiTail }}</span></div>
+                    <div><code>tabby.clear()</code><span>{{ labels.apiClear }}</span></div>
+                </div>
+                <pre class="command-editor-python-api-example">mark = tabby.mark()
+tabby.send("git version")
+match = tabby.expect(r"git version\s+([0-9][^\n]*)", timeout=5, since=mark)
+print("version:", match.group(1))</pre>
             </section>
 
             <section>
@@ -235,7 +249,6 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                             <div class="command-editor-list-row list-header">
                                 <span>{{ labels.language }}</span>
                                 <span>{{ labels.foregroundCommand }}</span>
-                                <span>{{ labels.backgroundCommand }}</span>
                                 <span></span>
                             </div>
                             <div class="command-editor-list-row" *ngFor="let row of commandRows; let i = index; trackBy: trackByIndex">
@@ -253,13 +266,6 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                                     [attr.aria-label]="labels.foregroundCommand + ': ' + row.language"
                                     (ngModelChange)="markDirty()"
                                 >
-                                <input
-                                    class="form-control form-control-sm command-input"
-                                    type="text"
-                                    [(ngModel)]="row.backgroundCommand"
-                                    [attr.aria-label]="labels.backgroundCommand + ': ' + row.language"
-                                    (ngModelChange)="markDirty()"
-                                >
                                 <button
                                     class="btn btn-sm btn-outline-danger icon-button"
                                     type="button"
@@ -274,7 +280,6 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
 
                         <div class="command-editor-command-help text-muted">
                             <span>{{ labels.codeBlockTf }}</span>
-                            <span>{{ labels.codeBlockBg }}</span>
                         </div>
                         <button class="btn btn-sm btn-link config-fill-button" type="button" (click)="fillDefaultCommands()">
                             {{ labels.fillDefaultCommands }}
@@ -310,6 +315,23 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
 
         .command-editor-settings p {
             margin: 0 0 12px;
+        }
+
+        .command-editor-python-api-table > div {
+            display: grid;
+            grid-template-columns: minmax(260px, 0.9fr) minmax(280px, 1.3fr);
+            gap: 16px;
+            padding: 7px 0;
+            border-top: 1px solid var(--bs-border-color, rgba(255,255,255,.12));
+            font-size: 13px;
+        }
+
+        .command-editor-python-api-example {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 5px;
+            background: var(--bs-tertiary-bg, rgba(0,0,0,.2));
+            white-space: pre-wrap;
         }
 
         .command-editor-option-row {
@@ -448,7 +470,7 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
         }
 
         .command-list .command-editor-list-row {
-            grid-template-columns: minmax(90px, 0.55fr) minmax(170px, 1fr) minmax(170px, 1fr) 32px;
+            grid-template-columns: minmax(90px, 0.55fr) minmax(240px, 1.6fr) 32px;
         }
 
         .command-editor-list-row.list-header {
@@ -486,7 +508,7 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
 
         .command-editor-command-help {
             display: grid;
-            grid-template-columns: minmax(90px, 0.55fr) minmax(170px, 1fr) minmax(170px, 1fr) 32px;
+            grid-template-columns: minmax(90px, 0.55fr) minmax(240px, 1.6fr) 32px;
             gap: 8px;
             margin-top: 8px;
             font-size: 11px;
@@ -578,6 +600,14 @@ export class CommandEditorSettingsTabComponent {
             editorOptions: t(this.translate, this.locale, 'Editor options'),
             rightClickSendLine: t(this.translate, this.locale, 'Right-click to send line'),
             rightClickSendLineDesc: t(this.translate, this.locale, 'When enabled, right-click in the editor sends the command on that line to the terminal instead of opening the context menu.'),
+            pythonApi: t(this.translate, this.locale, 'Python API'),
+            pythonApiDesc: t(this.translate, this.locale, 'Select a target in the editor toolbar or press F10 to bind the current terminal. Only tabby.send() writes to the bound terminal.'),
+            apiSend: t(this.translate, this.locale, 'Send text as one or more commands to the bound terminal.'),
+            apiMark: t(this.translate, this.locale, 'Return the current absolute position in the terminal receive buffer.'),
+            apiExpect: t(this.translate, this.locale, 'Wait for a regular-expression match and return a Python re.Match object.'),
+            apiRead: t(this.translate, this.locale, 'Read new terminal text since the current cursor; optionally wait for data.'),
+            apiTail: t(this.translate, this.locale, 'Return the last N characters without moving the current cursor.'),
+            apiClear: t(this.translate, this.locale, 'Move the current cursor to the end without deleting the receive buffer.'),
             globalHotkeys: t(this.translate, this.locale, 'Global hotkeys'),
             globalHotkeysDesc: t(this.translate, this.locale, 'These are Tabby-level hotkeys registered by the command editor. Edit their bindings in Settings -> Hotkeys.'),
             action: t(this.translate, this.locale, 'Action'),
@@ -588,16 +618,14 @@ export class CommandEditorSettingsTabComponent {
             searchFocusKeys: t(this.translate, this.locale, 'Search focus keys'),
             searchFocusKeysDesc: t(this.translate, this.locale, 'These keys keep sending and running available while Monaco search is open.'),
             codeBlockRun: t(this.translate, this.locale, 'Code block run commands'),
-            codeBlockRunDesc: t(this.translate, this.locale, 'Configure runnable Markdown fence aliases and foreground/background commands. Save writes these values under commandEditor in config.yaml.'),
+            codeBlockRunDesc: t(this.translate, this.locale, 'Configure runnable Markdown fence aliases and terminal file commands. Save writes these values under commandEditor in config.yaml.'),
             languageAliases: t(this.translate, this.locale, 'Language aliases'),
             codeBlockAliases: t(this.translate, this.locale, 'Markdown fence tag → interpreter'),
             runCommands: t(this.translate, this.locale, 'Run commands'),
-            runCommandsDesc: t(this.translate, this.locale, 'Configure foreground and background commands for each interpreter.'),
+            runCommandsDesc: t(this.translate, this.locale, 'Configure the terminal file command for each interpreter.'),
             fenceAlias: t(this.translate, this.locale, 'Fence alias'),
             language: t(this.translate, this.locale, 'Language'),
             foregroundCommand: t(this.translate, this.locale, 'Foreground command'),
-            backgroundCommand: t(this.translate, this.locale, 'Background command'),
-            codeBlockBg: t(this.translate, this.locale, 'BG mode: spawn command string; script body is written to stdin'),
             codeBlockTf: t(this.translate, this.locale, 'TF mode: command sent to terminal; {file} = quoted temp script path'),
             add: t(this.translate, this.locale, 'Add'),
             addInterpreter: t(this.translate, this.locale, 'Add interpreter'),
@@ -647,7 +675,7 @@ export class CommandEditorSettingsTabComponent {
     }
 
     addCommand (): void {
-        this.commandRows.push({ language: '', terminalCommand: '', backgroundCommand: '' })
+        this.commandRows.push({ language: '', terminalCommand: '' })
         this.markDirty()
     }
 
@@ -676,7 +704,6 @@ export class CommandEditorSettingsTabComponent {
         const defaults = resolveCodeBlockRunSettings(undefined)
         for (const row of this.commandRows) {
             row.terminalCommand = defaults.terminalCommands[row.language]
-            row.backgroundCommand = defaults.backgroundCommands[row.language]
         }
         this.markDirty()
     }
@@ -712,11 +739,9 @@ export class CommandEditorSettingsTabComponent {
         }
 
         const terminalCommands: Record<string, string> = {}
-        const backgroundCommands: Record<string, string> = {}
         for (const row of this.commandRows) {
             const language = row.language.trim().toLowerCase()
             const terminalCommand = row.terminalCommand.trim()
-            const backgroundCommand = row.backgroundCommand.trim()
             if (!language) {
                 this.saveError = t(this.translate, this.locale, 'Interpreter name cannot be empty.')
                 return
@@ -725,14 +750,13 @@ export class CommandEditorSettingsTabComponent {
                 this.saveError = t(this.translate, this.locale, 'Interpreter "{language}" is duplicated.', { language })
                 return
             }
-            if (!terminalCommand || !backgroundCommand) {
-                this.saveError = t(this.translate, this.locale, 'Both commands are required for {language}.', {
+            if (!terminalCommand) {
+                this.saveError = t(this.translate, this.locale, 'A command is required for {language}.', {
                     language,
                 })
                 return
             }
             terminalCommands[language] = terminalCommand
-            backgroundCommands[language] = backgroundCommand
         }
 
         this.saving = true
@@ -745,7 +769,6 @@ export class CommandEditorSettingsTabComponent {
             }
             this.setConfigValue(commandEditor, 'codeBlockLanguageAliases', { ...aliases })
             this.setConfigValue(commandEditor, 'codeBlockTerminalCommands', { ...terminalCommands })
-            this.setConfigValue(commandEditor, 'codeBlockBackgroundCommands', { ...backgroundCommands })
             await this.config.save()
             // ConfigProxy may still expose its pre-save snapshot here. Reload the
             // persisted YAML before rebuilding the form so it reflects disk state.
@@ -789,13 +812,11 @@ export class CommandEditorSettingsTabComponent {
         }))
         const languages = new Set([
             ...Object.keys(settings.terminalCommands),
-            ...Object.keys(settings.backgroundCommands),
             ...Object.values(settings.languageAliases),
         ])
         this.commandRows = [...languages].map(language => ({
             language,
             terminalCommand: settings.terminalCommands[language],
-            backgroundCommand: settings.backgroundCommands[language],
         }))
     }
 

@@ -1,19 +1,16 @@
 /** User-configurable interpreter identifier (for example python, node or ruby). */
 export type ScriptLanguage = string
-export type BlockRunMode = 'terminal' | 'background'
 
 export type ScriptLanguageMap = Record<string, string>
 
 export interface CodeBlockRunSettings {
     languageAliases: Record<string, ScriptLanguage>
     terminalCommands: ScriptLanguageMap
-    backgroundCommands: ScriptLanguageMap
 }
 
 export interface CommandEditorCodeBlockConfig {
     codeBlockLanguageAliases?: Record<string, string>
     codeBlockTerminalCommands?: Record<string, string>
-    codeBlockBackgroundCommands?: Record<string, string>
     /** Legacy config key kept for migration. */
     codeBlockTerminalFileCommands?: Record<string, string>
     /** Legacy config key kept for migration. */
@@ -43,17 +40,6 @@ export const DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_WINDOWS: ScriptLanguageMap = {
     powershell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {file}',
 }
 
-export const DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_UNIX: ScriptLanguageMap = {
-    python: 'python -u -',
-    bash: 'bash -s',
-    powershell: 'pwsh -NoProfile -NonInteractive -Command -',
-}
-
-export const DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_WINDOWS: ScriptLanguageMap = {
-    python: 'python -u -',
-    bash: 'wsl bash -s',
-    powershell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command -',
-}
 
 export function resolveCodeBlockRunSettings (
     config: CommandEditorCodeBlockConfig | Record<string, unknown> | undefined,
@@ -68,11 +54,6 @@ export function resolveCodeBlockRunSettings (
             ...normalizeCommandMap(raw.codeBlockTerminalFileCommands),
             ...normalizeCommandMap(raw.codeBlockTerminalCommands),
         },
-        backgroundCommands: {
-            ...defaults.backgroundCommands,
-            ...normalizeCommandMap(raw.codeBlockBackgroundRunners),
-            ...normalizeCommandMap(raw.codeBlockBackgroundCommands),
-        },
     }
 }
 
@@ -83,7 +64,6 @@ export function formatCodeBlockRunConfigForDisplay (
     return JSON.stringify({
         codeBlockLanguageAliases: settings.languageAliases,
         codeBlockTerminalCommands: settings.terminalCommands,
-        codeBlockBackgroundCommands: settings.backgroundCommands,
     }, null, 2)
 }
 
@@ -132,17 +112,15 @@ export function parseCommandLine (commandLine: string): { command: string; args:
     return { command, args }
 }
 
-function getPlatformDefaults (): { terminalCommands: ScriptLanguageMap; backgroundCommands: ScriptLanguageMap } {
+function getPlatformDefaults (): { terminalCommands: ScriptLanguageMap } {
     if (process.platform === 'win32') {
         return {
             terminalCommands: DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_WINDOWS,
-            backgroundCommands: DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_WINDOWS,
         }
     }
 
     return {
         terminalCommands: DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_UNIX,
-        backgroundCommands: DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_UNIX,
     }
 }
 

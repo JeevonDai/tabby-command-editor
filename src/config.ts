@@ -1,7 +1,5 @@
 import { ConfigProvider, Platform } from 'tabby-core'
 import {
-    DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_UNIX,
-    DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_WINDOWS,
     DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES,
     DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_UNIX,
     DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_WINDOWS,
@@ -22,14 +20,10 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             sendLoopCount: 1,
             /** When true, right-click sends the line under the cursor instead of opening the context menu. */
             rightClickSendLine: false,
-            /** How code blocks (python/powershell/bash) are executed. */
-            blockRunMode: 'background' as 'terminal' | 'background',
             /** Markdown fence language tag → interpreter family (python/bash/powershell). */
             codeBlockLanguageAliases: { ...DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES },
             /** TF mode: one command string per interpreter; `{file}` = temp script path. */
             codeBlockTerminalCommands: { ...DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_UNIX },
-            /** BG mode: one spawn command per interpreter; script via stdin. */
-            codeBlockBackgroundCommands: { ...DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_UNIX },
         },
         hotkeys: {
             'toggle-command-editor-panel': [],
@@ -42,8 +36,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             'send-command-editor-panel': [],
             'open-command-editor-outline': [],
             'open-command-editor-symbol': [],
-            'toggle-command-editor-python-log': [],
-            'open-command-editor-python-log': [],
+            'bind-command-editor-python-api': [],
             'command-tips': {
                 __nonStructural: true,
                 toggle: [],
@@ -68,14 +61,12 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-panel': ['F8'],
                 'open-command-editor-outline': ['Ctrl-Q'],
                 'open-command-editor-symbol': ['Alt-Shift-Enter'],
-                'toggle-command-editor-python-log': ['F10'],
-                'open-command-editor-python-log': ['Alt-Shift-G'],
+                'bind-command-editor-python-api': ['F10'],
             },
         },
         [Platform.Windows]: {
             commandEditor: {
                 codeBlockTerminalCommands: { ...DEFAULT_CODE_BLOCK_TERMINAL_COMMANDS_WINDOWS },
-                codeBlockBackgroundCommands: { ...DEFAULT_CODE_BLOCK_BACKGROUND_COMMANDS_WINDOWS },
             },
             hotkeys: {
                 'toggle-command-editor-panel': ['Ctrl-E'],
@@ -88,8 +79,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-panel': ['F8'],
                 'open-command-editor-outline': ['Ctrl-Q'],
                 'open-command-editor-symbol': ['Alt-Shift-Enter'],
-                'toggle-command-editor-python-log': ['F10'],
-                'open-command-editor-python-log': ['Alt-Shift-G'],
+                'bind-command-editor-python-api': ['F10'],
             },
         },
         [Platform.Linux]: {
@@ -104,8 +94,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
                 'send-command-editor-panel': ['F8'],
                 'open-command-editor-outline': ['Ctrl-Q'],
                 'open-command-editor-symbol': ['Alt-Shift-Enter'],
-                'toggle-command-editor-python-log': ['F10'],
-                'open-command-editor-python-log': ['Alt-Shift-G'],
+                'bind-command-editor-python-api': ['F10'],
             },
         },
     }

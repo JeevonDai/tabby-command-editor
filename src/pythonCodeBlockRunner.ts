@@ -3,6 +3,9 @@ import * as monaco from 'monaco-editor'
 import { ChildProcessWithoutNullStreams, execSync, spawn } from 'child_process'
 import * as path from 'path'
 import { StringDecoder } from 'string_decoder'
+import { Writable } from 'stream'
+import { injectTerminalBridgeApi } from './terminalPythonBridge'
+import type { PythonBridgeBinding } from './terminalPythonBridge'
 import {
     CodeBlockRunSettings,
     parseCommandLine,
@@ -15,6 +18,7 @@ export type { ScriptLanguage } from './codeBlockRunConfig'
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024
 const WINDOWS_APPS_PYTHON_STUB = /\\Microsoft\\WindowsApps\\/i
+const TABBY_SEND_PREFIX = '\x1eTABBY_SEND:'
 
 export interface RunnableCodeBlock {
     code: string
@@ -27,6 +31,8 @@ export interface RunnableCodeBlock {
 export interface CodeExecution {
     promise: Promise<void>
     cancel: () => void
+    /** Feed raw output from the terminal bound to this background script. */
+    writeTerminalOutput: (data: string | Buffer) => void
 }
 
 interface Fence {
@@ -130,6 +136,9 @@ export function runCodeBlock (
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
 ): CodeExecution {
     let activeChild: ChildProcessWithoutNullStreams | null = null
+    let terminalInput: Writable | null = null
+    let noteTerminalActivity: (() => void) | null = null
+    const pendingTerminalInput: Buffer[] = []
     let cancelled = false
 
     const promise = new Promise<void>((resolve, reject) => {
@@ -140,7 +149,7 @@ export function runCodeBlock (
         }
 
         const scriptLanguage = resolved
-        const commandLine = settings.backgroundCommands[scriptLanguage]?.trim()
+        const commandLine = settings.terminalCommands[scriptLanguage]?.trim()
         if (!commandLine) {
             reject(new Error(notFoundMessage(scriptLanguage)))
             return
@@ -162,10 +171,13 @@ export function runCodeBlock (
         const child = spawn(command, args, {
             windowsHide: true,
             shell: false,
-            stdio: ['pipe', 'pipe', 'pipe'],
+            // fd 3 is kept separate from stdin because stdin carries the script itself.
+            stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
             env: getSpawnEnvironment(),
         })
-        activeChild = child
+        activeChild = child as ChildProcessWithoutNullStreams
+        terminalInput = child.stdio[3] as Writable
+        terminalInput.on('error', () => { /* process close/error handlers report the result */ })
 
         const stderr: Buffer[] = []
         let outputBytes = 0
@@ -195,6 +207,7 @@ export function runCodeBlock (
                 )))
             }, timeoutMs)
         }
+        noteTerminalActivity = resetInactivityTimer
 
         const countOutput = (chunk: Buffer): boolean => {
             outputBytes += chunk.length
@@ -251,6 +264,9 @@ export function runCodeBlock (
 
         child.once('spawn', () => {
             resetInactivityTimer()
+            for (const chunk of pendingTerminalInput.splice(0)) {
+                terminalInput?.write(chunk)
+            }
             child.stdin.end(payload)
         })
 
@@ -298,7 +314,20 @@ export function runCodeBlock (
         promise,
         cancel: () => {
             cancelled = true
+            terminalInput?.end()
             activeChild?.kill()
+        },
+        writeTerminalOutput: data => {
+            if (cancelled) {
+                return
+            }
+            const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8')
+            noteTerminalActivity?.()
+            if (terminalInput) {
+                terminalInput.write(chunk)
+            } else {
+                pendingTerminalInput.push(chunk)
+            }
         },
     }
 }
@@ -311,6 +340,9 @@ function formatSpawnError (error: Error & { code?: string }, command: string, la
 }
 
 function normalizeCode (language: ScriptLanguage, code: string): string {
+    if (language === 'python') {
+        return `${PYTHON_TERMINAL_API}\n${code}`
+    }
     if (language === 'bash') {
         // bash chokes on CR (`$'\r': command not found`) when the editor uses CRLF endings.
         const normalized = code.replace(/\r\n?/g, '\n')
@@ -530,13 +562,14 @@ export function resolveFilePathStyle (template: string): 'wsl' | 'win' {
     return 'win'
 }
 
-export function writeTempPythonScript (code: string): string {
+export function writeTempPythonScript (code: string, binding?: PythonBridgeBinding): string {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const fs = require('fs') as typeof import('fs')
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const os = require('os') as typeof import('os')
     const scriptPath = path.join(os.tmpdir(), `tabby-cmd-editor-${Date.now()}.py`)
-    const normalized = code.endsWith('\n') ? code : `${code}\n`
+    const source = binding ? injectTerminalBridgeApi(code, binding) : code
+    const normalized = source.endsWith('\n') ? source : `${source}\n`
     fs.writeFileSync(scriptPath, normalized, 'utf8')
     return scriptPath
 }
@@ -555,8 +588,9 @@ export function writeTempPowerShellScript (code: string): string {
 export function resolvePythonTerminalPayload (
     code: string,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
+    binding?: PythonBridgeBinding,
 ): TerminalRunPayload {
-    const scriptPath = writeTempPythonScript(code)
+    const scriptPath = writeTempPythonScript(code, binding)
     return {
         mode: 'line',
         command: buildTerminalCommand(scriptPath, 'python', settings),
@@ -578,12 +612,13 @@ export function resolveScriptTerminalPayload (
     language: ScriptLanguage,
     code: string,
     settings: CodeBlockRunSettings = resolveCodeBlockRunSettings(undefined),
+    binding?: PythonBridgeBinding,
 ): TerminalRunPayload {
     switch (language) {
         case 'bash':
             return resolveBashTerminalPayload(code, settings)
         case 'python':
-            return resolvePythonTerminalPayload(code, settings)
+            return resolvePythonTerminalPayload(code, settings, binding)
         case 'powershell':
             return resolvePowerShellTerminalPayload(code, settings)
     }
@@ -593,6 +628,106 @@ export function resolveScriptTerminalPayload (
         command: buildTerminalCommand(scriptPath, language, settings),
     }
 }
+
+/** Decode a command emitted by the injected Python tabby.send() API. */
+export function decodeTabbySendLine (line: string): string | null {
+    if (!line.startsWith(TABBY_SEND_PREFIX)) {
+        return null
+    }
+    try {
+        return Buffer.from(line.substring(TABBY_SEND_PREFIX.length), 'base64').toString('utf8')
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Python-side API backed by fd 3. stdout intentionally remains reserved for commands.
+ * Available to code blocks as: tabby.read(), tabby.tail(), tabby.clear(),
+ * tabby.mark(), and tabby.expect(pattern, timeout, since).
+ */
+const PYTHON_TERMINAL_API = String.raw`
+import os as _tabby_os
+import base64 as _tabby_base64
+import re as _tabby_re
+import threading as _tabby_threading
+import time as _tabby_time
+
+class _TabbyConsole:
+    def __init__(self):
+        self._text = ""
+        self._base = 0
+        self._cursor = 0
+        self._max_chars = 1024 * 1024
+        self._condition = _tabby_threading.Condition()
+        _tabby_threading.Thread(target=self._receive, daemon=True).start()
+
+    def send(self, text):
+        payload = str(text).encode("utf-8")
+        encoded = _tabby_base64.b64encode(payload).decode("ascii")
+        print("\x1eTABBY_SEND:" + encoded, flush=True)
+
+    def _receive(self):
+        while True:
+            try:
+                chunk = _tabby_os.read(3, 4096)
+            except OSError:
+                return
+            if not chunk:
+                return
+            text = chunk.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+            with self._condition:
+                self._text += text
+                excess = len(self._text) - self._max_chars
+                if excess > 0:
+                    self._text = self._text[excess:]
+                    self._base += excess
+                    self._cursor = max(self._cursor, self._base)
+                self._condition.notify_all()
+
+    def mark(self):
+        with self._condition:
+            return self._base + len(self._text)
+
+    def clear(self):
+        with self._condition:
+            self._cursor = self._base + len(self._text)
+            return self._cursor
+
+    def tail(self, last=4096):
+        with self._condition:
+            return self._text[-max(0, int(last)):]
+
+    def read(self, timeout=0):
+        deadline = _tabby_time.monotonic() + max(0, float(timeout))
+        with self._condition:
+            while self._cursor >= self._base + len(self._text):
+                remaining = deadline - _tabby_time.monotonic()
+                if remaining <= 0:
+                    return ""
+                self._condition.wait(remaining)
+            result = self._text[max(0, self._cursor - self._base):]
+            self._cursor = self._base + len(self._text)
+            return result
+
+    def expect(self, pattern, timeout=5, since=None, flags=0):
+        expression = _tabby_re.compile(pattern, flags) if isinstance(pattern, str) else pattern
+        start = self._cursor if since is None else max(0, int(since))
+        deadline = _tabby_time.monotonic() + max(0, float(timeout))
+        with self._condition:
+            while True:
+                match = expression.search(self._text, max(0, start - self._base))
+                if match:
+                    self._cursor = self._base + match.end()
+                    return match
+                remaining = deadline - _tabby_time.monotonic()
+                if remaining <= 0:
+                    tail = self._text[-4000:]
+                    raise TimeoutError("terminal expect timed out: %r\n--- terminal tail ---\n%s" % (pattern, tail))
+                self._condition.wait(remaining)
+
+tabby = _TabbyConsole()
+`
 
 function writeTempScript (code: string, language: string): string {
     // eslint-disable-next-line @typescript-eslint/no-var-requires

@@ -44,12 +44,8 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
                 name: t(this.translate, this.locale, 'Go to symbol in command editor'),
             },
             {
-                id: 'toggle-command-editor-python-log',
-                name: t(this.translate, this.locale, 'Block run mode in command editor'),
-            },
-            {
-                id: 'open-command-editor-python-log',
-                name: t(this.translate, this.locale, 'Open Python log location'),
+                id: 'bind-command-editor-python-api',
+                name: t(this.translate, this.locale, 'Bind current terminal for Python API'),
             },
         ]
     }

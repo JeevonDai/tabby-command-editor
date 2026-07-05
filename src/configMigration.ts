@@ -39,12 +39,11 @@ export class CommandEditorConfigMigration {
             changed = true
         }
 
-        if (commandEditor && 'pythonLogMode' in commandEditor) {
-            if (!('blockRunMode' in commandEditor)) {
-                commandEditor.blockRunMode = 'background'
-            }
-            delete commandEditor.pythonLogMode
-            changed = true
+        for (const key of ['pythonLogMode', 'blockRunMode', 'codeBlockBackgroundCommands']) {
+            if (commandEditor && key in commandEditor) { delete commandEditor[key]; changed = true }
+        }
+        for (const key of ['toggle-command-editor-python-log', 'open-command-editor-python-log']) {
+            if (hotkeys?.[key]) { delete hotkeys[key]; changed = true }
         }
 
         if (hotkeys?.['send-command-editor-lines']?.includes('F7')
@@ -59,10 +58,6 @@ export class CommandEditorConfigMigration {
             changed = true
         }
 
-        if (hotkeys && !('toggle-command-editor-python-log' in hotkeys)) {
-            hotkeys['toggle-command-editor-python-log'] = ['F10']
-            changed = true
-        }
 
         if (hotkeys && (!hotkeys['cancel-command-editor-loop'] || hotkeys['cancel-command-editor-loop'].length === 0)) {
             hotkeys['cancel-command-editor-loop'] = ['F6']
@@ -78,19 +73,9 @@ export class CommandEditorConfigMigration {
             changed = true
         }
 
-        const backgroundCommands = commandEditor?.['codeBlockBackgroundCommands'] as Record<string, unknown> | undefined
-        if (backgroundCommands && (
-            backgroundCommands.python === 'python3 -u -'
-            || backgroundCommands.python === 'py -3 -u -'
-        )) {
-            backgroundCommands.python = 'python -u -'
-            changed = true
-        }
-
         if (commandEditor?.['codeBlockTerminalFileCommands'] || commandEditor?.['codeBlockBackgroundRunners']) {
             const resolved = resolveCodeBlockRunSettings(commandEditor as CommandEditorCodeBlockConfig)
             commandEditor.codeBlockTerminalCommands = resolved.terminalCommands
-            commandEditor.codeBlockBackgroundCommands = resolved.backgroundCommands
             delete commandEditor.codeBlockTerminalFileCommands
             delete commandEditor.codeBlockBackgroundRunners
             changed = true
