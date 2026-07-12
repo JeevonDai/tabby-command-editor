@@ -220,6 +220,26 @@ export class CommandEditorPanelService {
             return
         }
 
+        if (
+            findWidgetVisible
+            && this.isMonacoOverlayInput(target)
+            && this.isFindEnterSendModeEnabled()
+            && event.key === 'Enter'
+            && !event.altKey
+        ) {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+
+            if (event.ctrlKey || event.metaKey) {
+                this.runFindWidgetMatch(!event.shiftKey)
+            } else if (event.shiftKey) {
+                this.exitFindWidgetAndSendMatch()
+            } else {
+                this.sendCurrentFindMatchLine()
+            }
+            return
+        }
+
         if (findWidgetVisible) {
             if (event.key === 'F7') {
                 event.preventDefault()
@@ -611,6 +631,10 @@ export class CommandEditorPanelService {
 
     private isRightClickSendLineEnabled (): boolean {
         return this.config.store.commandEditor?.rightClickSendLine === true
+    }
+
+    private isFindEnterSendModeEnabled (): boolean {
+        return this.config.store.commandEditor?.findEnterSendMode === true
     }
 
     async loopOrRun (_terminal?: BaseTerminalTabComponent<any> | null): Promise<void> {
@@ -1744,6 +1768,34 @@ export class CommandEditorPanelService {
             forward ? 'editor.action.nextMatchFindAction' : 'editor.action.previousMatchFindAction',
             null,
         )
+    }
+
+    private getCurrentFindMatchLine (): number | null {
+        const selection = this.panel?.editor.getSelection()
+        return selection && !selection.isEmpty()
+            ? selection.startLineNumber
+            : null
+    }
+
+    private sendCurrentFindMatchLine (): void {
+        if (this.getCurrentFindMatchLine() === null) {
+            return
+        }
+        this.sendFromPanel(undefined, true)
+    }
+
+    private exitFindWidgetAndSendMatch (): void {
+        const editor = this.panel?.editor
+        const matchedLine = this.getCurrentFindMatchLine()
+        if (!editor || matchedLine === null) {
+            return
+        }
+
+        editor.trigger('keyboard', 'closeFindWidget', null)
+        editor.setPosition({ lineNumber: matchedLine, column: 1 })
+        editor.revealLineInCenterIfOutsideViewport(matchedLine)
+        editor.focus()
+        this.sendFromPanelAtLine(matchedLine)
     }
 
     private setupEditorKeybindings (

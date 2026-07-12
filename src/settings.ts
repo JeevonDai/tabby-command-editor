@@ -69,8 +69,10 @@ const EDITOR_SHORTCUTS: ShortcutRow[] = [
 ]
 
 const FIND_SHORTCUTS: ShortcutRow[] = [
-    { keys: 'Enter / F7', name: 'Find next', detail: 'Next search match while find widget is open' },
-    { keys: 'Shift+Enter / Shift+F7', name: 'Find previous', detail: 'Previous search match while find widget is open' },
+    { keys: 'Enter', name: 'Next or Send', detail: 'Default: next/replace; send mode: send the current highlighted match line' },
+    { keys: 'Shift+Enter', name: 'Previous or Exit and Send', detail: 'Default: previous; send mode: close find, focus the match line, and send it' },
+    { keys: 'Ctrl+Enter / F7', name: 'Find next', detail: 'Next search match in send mode; F7 is always available' },
+    { keys: 'Ctrl+Shift+Enter / Shift+F7', name: 'Find previous', detail: 'Previous search match in send mode; Shift+F7 is always available' },
     { keys: 'F6', name: 'Stop', detail: 'Stop active loop sends and tabby background tasks' },
     { keys: 'F8', name: 'Send', detail: 'Send current line while search is open (blocked inside code blocks)' },
     { keys: 'F9', name: 'Loop or Run', detail: 'Same as editor F9; in find mode sends match line and moves to the next line' },
@@ -118,6 +120,17 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                         <span>{{ labels.rightClickSendLine }}</span>
                     </label>
                     <p class="text-muted">{{ labels.rightClickSendLineDesc }}</p>
+                </div>
+                <div class="command-editor-option-row">
+                    <label class="command-editor-option-toggle">
+                        <input
+                            type="checkbox"
+                            [checked]="findEnterSendMode"
+                            (change)="onFindEnterSendModeChange($event)"
+                        />
+                        <span>{{ labels.findEnterSendMode }}</span>
+                    </label>
+                    <p class="text-muted">{{ labels.findEnterSendModeDesc }}</p>
                 </div>
             </section>
 
@@ -602,6 +615,8 @@ export class CommandEditorSettingsTabComponent {
             editorOptions: t(this.translate, this.locale, 'Editor options'),
             rightClickSendLine: t(this.translate, this.locale, 'Right-click to send line'),
             rightClickSendLineDesc: t(this.translate, this.locale, 'When enabled, right-click in the editor sends the command on that line to the terminal instead of opening the context menu.'),
+            findEnterSendMode: t(this.translate, this.locale, 'Use Enter to send search matches'),
+            findEnterSendModeDesc: t(this.translate, this.locale, 'When enabled in the focused find/replace input: Enter sends the current match line, Shift+Enter exits and sends it, Ctrl+Enter finds next, and Ctrl+Shift+Enter finds previous.'),
             pythonApi: t(this.translate, this.locale, 'Python API'),
             pythonApiDesc: t(this.translate, this.locale, 'Use a fenced tabby block for background Python. It automatically binds send/read operations to the terminal focused when the task starts.'),
             apiSend: t(this.translate, this.locale, 'Send text as one or more commands to the bound terminal.'),
@@ -659,6 +674,19 @@ export class CommandEditorSettingsTabComponent {
             return
         }
         this.config.store.commandEditor.rightClickSendLine = checked
+        void this.config.save()
+    }
+
+    get findEnterSendMode (): boolean {
+        return this.config.store.commandEditor?.findEnterSendMode === true
+    }
+
+    onFindEnterSendModeChange (event: Event): void {
+        const checked = (event.target as HTMLInputElement).checked
+        if (!this.config.store.commandEditor) {
+            return
+        }
+        this.config.store.commandEditor.findEnterSendMode = checked
         void this.config.save()
     }
 

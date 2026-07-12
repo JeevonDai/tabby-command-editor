@@ -20,6 +20,8 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             sendLoopCount: 1,
             /** When true, right-click sends the line under the cursor instead of opening the context menu. */
             rightClickSendLine: false,
+            /** Remap Enter shortcuts while the Monaco find/replace input is focused. */
+            findEnterSendMode: false,
             /** Markdown fence language tag → interpreter family (python/bash/powershell). */
             codeBlockLanguageAliases: { ...DEFAULT_CODE_BLOCK_LANGUAGE_ALIASES },
             /** One terminal command per interpreter; `{file}` = temp script path. */
