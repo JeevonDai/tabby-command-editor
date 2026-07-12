@@ -568,7 +568,19 @@ export class CommandEditorPanelService {
             return
         }
 
-        this.sendToTerminal(terminalTab, text)
+        const lines = this.getNonEmptyCommandLines(text)
+        if (lines.length === 1) {
+            this.sendLineToTerminal(terminalTab, lines[0])
+            return
+        }
+
+        // Even when the configured value is zero, leave enough time between selected
+        // lines for a 115200-baud serial target to consume each submitted command.
+        const delayMs = Math.max(10, this.readSendIntervalSec(state) * 1000)
+        void this.sendCommandLinesWithInterval(terminalTab, lines, delayMs).catch(error => {
+            console.error('[CommandEditorPanel] Multi-line send failed:', error)
+            this.notifications.error(t(this.translate, this.locale, 'Loop send failed'))
+        })
     }
 
     sendFromPanelAtLine (lineNumber: number, _terminal?: BaseTerminalTabComponent<any> | null): void {
@@ -2858,7 +2870,10 @@ export class CommandEditorPanelService {
             case 'min':
                 return Math.round(value)
             case 'ms':
-                return Math.round(value)
+                if (value === 0) {
+                    return 0
+                }
+                return Math.max(10, Math.round(value / 10) * 10)
             default:
                 return Math.round(value * 10) / 10
         }
@@ -3300,16 +3315,32 @@ export class CommandEditorPanelService {
     }
 
     private sendToTerminal (terminal: BaseTerminalTabComponent<any>, command: string): void {
-        let lines = command.replace(/\r\n/g, '\n').split('\n')
-        while (lines.length > 1 && lines[lines.length - 1] === '') {
-            lines.pop()
-        }
-
-        for (const line of lines) {
-            if (!line.trim()) {
-                continue
-            }
+        for (const line of this.getNonEmptyCommandLines(command)) {
             this.sendLineToTerminal(terminal, line)
+        }
+    }
+
+    private getNonEmptyCommandLines (command: string): string[] {
+        return command
+            .replace(/\r\n/g, '\n')
+            .split('\n')
+            .filter(line => line.trim().length > 0)
+    }
+
+    private async sendCommandLinesWithInterval (
+        terminal: BaseTerminalTabComponent<any>,
+        lines: string[],
+        delayMs: number,
+    ): Promise<void> {
+        for (let index = 0; index < lines.length; index++) {
+            if (!terminal.session || !this.isTerminalTabAlive(terminal)) {
+                return
+            }
+
+            this.sendLineToTerminal(terminal, lines[index])
+            if (index + 1 < lines.length) {
+                await new Promise<void>(resolve => window.setTimeout(resolve, delayMs))
+            }
         }
     }
 
