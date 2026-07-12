@@ -106,6 +106,7 @@ export class CommandEditorPanelService {
     private commandHistoryCompletionIndex = 0
     private commandHistoryCompletionSignature: string | null = null
     private commandHistoryCompletionProvider: monaco.IDisposable | null = null
+    private copiedWholeLineText: string | null = null
     private panelResizeDrag: {
         active: boolean
         startPos: number
@@ -246,67 +247,59 @@ export class CommandEditorPanelService {
             }
         }
 
-        if (!(event.ctrlKey || event.metaKey)) {
+        // Exact clipboard shortcuts use Tabby's bridge. Modified shortcuts such as
+        // Ctrl+Alt+Enter stay native so Monaco can perform Replace All.
+        if (
+            !(event.ctrlKey || event.metaKey)
+            || event.altKey
+            || event.shiftKey
+        ) {
             return
         }
 
         const key = event.key.toLowerCase()
+        if (!['a', 'c', 'v', 'x'].includes(key)) {
+            return
+        }
 
         if (this.isMonacoOverlayInput(target)) {
-            event.stopImmediatePropagation()
             if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
                 return
             }
-
-            if (key === 'v') {
-                event.preventDefault()
-                const text = this.readClipboardText()
-                if (text) {
-                    this.pasteIntoInput(target, text)
-                }
-                return
-            }
-            if (key === 'c') {
-                event.preventDefault()
-                this.copyFromInput(target)
-                return
-            }
-            if (key === 'x') {
-                event.preventDefault()
-                this.cutFromInput(target)
-                return
-            }
-            if (key === 'a') {
-                event.preventDefault()
-                target.select()
-            }
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            this.handleInputClipboardShortcut(target, key)
             return
         }
 
+        if (!this.editorFocused) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopImmediatePropagation()
         const editor = this.panel.editor
-
-        if (key === 'c') {
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            this.copyFromEditor(editor)
-            return
+        switch (key) {
+            case 'c':
+                this.copyFromEditor(editor)
+                break
+            case 'v':
+                this.pasteIntoEditor(editor)
+                break
+            case 'x':
+                this.cutFromEditor(editor)
+                break
+            case 'a':
+                editor.trigger('keyboard', 'editor.action.selectAll', null)
+                break
         }
-        if (key === 'v') {
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            this.pasteIntoEditor(editor)
-            return
-        }
-        if (key === 'x') {
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            this.cutFromEditor(editor)
-            return
-        }
-        if (key === 'a') {
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            editor.trigger('keyboard', 'editor.action.selectAll', null)
+    }
+    private readonly onWindowBlur = (): void => {
+        this.editorFocused = false
+    }
+    private readonly onVisibilityChange = (): void => {
+        if (document.hidden) {
+            this.editorFocused = false
         }
     }
     private readonly onWindowResize = (): void => {
@@ -330,6 +323,8 @@ export class CommandEditorPanelService {
         document.addEventListener('keydown', this.onPanelHotkeyCapture, true)
         document.addEventListener('keydown', this.onDocumentKeyCapture, true)
         document.addEventListener('click', this.onDocumentClick, true)
+        document.addEventListener('visibilitychange', this.onVisibilityChange)
+        window.addEventListener('blur', this.onWindowBlur)
         this.app.ready$.subscribe(() => {
             const filePath = this.config.store.commandEditor?.lastOpenedFile
             if (filePath && typeof filePath === 'string') {
@@ -2030,65 +2025,64 @@ export class CommandEditorPanelService {
         return false
     }
 
-    private pasteIntoInput (input: HTMLInputElement | HTMLTextAreaElement, text: string): void {
-        const start = input.selectionStart ?? input.value.length
-        const end = input.selectionEnd ?? start
-        input.setRangeText(text, start, end, 'end')
-        input.dispatchEvent(new Event('input', { bubbles: true }))
-    }
-
-    private copyFromInput (input: HTMLInputElement | HTMLTextAreaElement): void {
-        const start = input.selectionStart ?? 0
-        const end = input.selectionEnd ?? 0
-        if (start === end) {
-            return
-        }
-
-        this.writeClipboardText(input.value.slice(start, end))
-    }
-
-    private cutFromInput (input: HTMLInputElement | HTMLTextAreaElement): void {
-        const start = input.selectionStart ?? 0
-        const end = input.selectionEnd ?? 0
-        if (start === end) {
-            return
-        }
-
-        const text = input.value.slice(start, end)
-        this.writeClipboardText(text)
-        input.setRangeText('', start, end, 'end')
-        input.dispatchEvent(new Event('input', { bubbles: true }))
-    }
-
     private copyFromEditor (editor: monaco.editor.IStandaloneCodeEditor): void {
         const selection = editor.getSelection()
         const model = editor.getModel()
-        if (!selection || !model || selection.isEmpty()) {
+        if (!selection || !model) {
             return
         }
 
-        const text = model.getValueInRange(selection)
+        const text = selection.isEmpty()
+            ? `${model.getLineContent(selection.positionLineNumber)}\n`
+            : model.getValueInRange(selection)
         if (text) {
-            this.writeClipboardText(text)
+            this.platform.setClipboard({ text })
+            this.copiedWholeLineText = selection.isEmpty() ? text : null
         }
     }
 
     private pasteIntoEditor (editor: monaco.editor.IStandaloneCodeEditor): void {
-        const text = this.readClipboardText()
-        if (!text) {
+        const text = this.platform.readClipboard()
+        const selection = editor.getSelection()
+        if (!text || !selection) {
             return
         }
 
-        const selection = editor.getSelection()
-        if (selection) {
-            editor.executeEdits('paste', [{ range: selection, text, forceMoveMarkers: true }])
-        }
+        const pasteAsWholeLine = selection.isEmpty() && this.copiedWholeLineText === text
+        const range = pasteAsWholeLine
+            ? new monaco.Range(selection.positionLineNumber, 1, selection.positionLineNumber, 1)
+            : selection
+        editor.executeEdits('paste', [{ range, text, forceMoveMarkers: true }])
     }
 
     private cutFromEditor (editor: monaco.editor.IStandaloneCodeEditor): void {
         const selection = editor.getSelection()
         const model = editor.getModel()
-        if (!selection || !model || selection.isEmpty()) {
+        if (!selection || !model) {
+            return
+        }
+
+        if (selection.isEmpty()) {
+            const lineNumber = selection.positionLineNumber
+            const text = `${model.getLineContent(lineNumber)}\n`
+            this.platform.setClipboard({ text })
+            this.copiedWholeLineText = text
+
+            let range: monaco.Range
+            if (model.getLineCount() === 1) {
+                range = new monaco.Range(1, 1, 1, model.getLineMaxColumn(1))
+            } else if (lineNumber < model.getLineCount()) {
+                range = new monaco.Range(lineNumber, 1, lineNumber + 1, 1)
+            } else {
+                const previousLine = lineNumber - 1
+                range = new monaco.Range(
+                    previousLine,
+                    model.getLineMaxColumn(previousLine),
+                    lineNumber,
+                    model.getLineMaxColumn(lineNumber),
+                )
+            }
+            editor.executeEdits('cut-line', [{ range, text: '', forceMoveMarkers: true }])
             return
         }
 
@@ -2097,33 +2091,42 @@ export class CommandEditorPanelService {
             return
         }
 
-        this.writeClipboardText(text)
+        this.platform.setClipboard({ text })
+        this.copiedWholeLineText = null
         editor.executeEdits('cut', [{ range: selection, text: '', forceMoveMarkers: true }])
     }
 
-    private readClipboardText (): string {
-        const fromPlatform = this.platform.readClipboard()
-        if (fromPlatform) {
-            return fromPlatform
-        }
-
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const { clipboard } = require('@electron/remote') as { clipboard: { readText: () => string } }
-            return clipboard.readText() ?? ''
-        } catch {
-            return ''
-        }
-    }
-
-    private writeClipboardText (text: string): void {
-        this.platform.setClipboard({ text })
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const { clipboard } = require('@electron/remote') as { clipboard: { writeText: (value: string) => void } }
-            clipboard.writeText(text)
-        } catch {
-            // PlatformService is the primary path
+    private handleInputClipboardShortcut (
+        input: HTMLInputElement | HTMLTextAreaElement,
+        key: string,
+    ): void {
+        const start = input.selectionStart ?? 0
+        const end = input.selectionEnd ?? start
+        switch (key) {
+            case 'a':
+                input.select()
+                return
+            case 'c':
+                if (start !== end) {
+                    this.platform.setClipboard({ text: input.value.slice(start, end) })
+                    this.copiedWholeLineText = null
+                }
+                return
+            case 'x':
+                if (start !== end) {
+                    this.platform.setClipboard({ text: input.value.slice(start, end) })
+                    this.copiedWholeLineText = null
+                    input.setRangeText('', start, end, 'end')
+                    input.dispatchEvent(new Event('input', { bubbles: true }))
+                }
+                return
+            case 'v': {
+                const text = this.platform.readClipboard()
+                if (text) {
+                    input.setRangeText(text, start, end, 'end')
+                    input.dispatchEvent(new Event('input', { bubbles: true }))
+                }
+            }
         }
     }
 
