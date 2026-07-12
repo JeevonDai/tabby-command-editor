@@ -250,21 +250,6 @@ export class CommandEditorPanelService {
             return
         }
 
-        if (findWidgetVisible) {
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                event.stopImmediatePropagation()
-                this.sendFromPanel(undefined, true)
-                return
-            }
-            if (event.key === 'Enter' && event.shiftKey) {
-                event.preventDefault()
-                event.stopImmediatePropagation()
-                void this.loopOrRun()
-                return
-            }
-        }
-
         const key = event.key.toLowerCase()
 
         if (this.isMonacoOverlayInput(target)) {
@@ -1775,7 +1760,9 @@ export class CommandEditorPanelService {
                 insertNewline()
             }
         }
-        const editorContext = 'editorTextFocus && !findWidgetVisible && !suggestWidgetVisible'
+        // Opening the find widget must not change Enter while focus remains in the editor.
+        // Monaco's find input handles Enter/Shift+Enter itself when that input has focus.
+        const editorContext = 'editorTextFocus && !suggestWidgetVisible'
 
         editor.addCommand(
             monaco.KeyCode.Tab,
@@ -1797,6 +1784,16 @@ export class CommandEditorPanelService {
         )
 
         editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
+        editor.addCommand(
+            monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+            () => editor.trigger('keyboard', 'editor.action.insertLineAfter', null),
+            editorContext,
+        )
+        editor.addCommand(
+            monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter,
+            () => editor.trigger('keyboard', 'editor.action.insertLineBefore', null),
+            editorContext,
+        )
         editor.addCommand(monaco.KeyCode.F6, () => this.cancelLoopSend(), editorContext)
         editor.addCommand(monaco.KeyCode.F8, send, editorContext)
         editor.addCommand(monaco.KeyCode.F9, () => void this.loopOrRun(), editorContext)
