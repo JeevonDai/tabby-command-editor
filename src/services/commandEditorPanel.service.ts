@@ -77,6 +77,7 @@ interface PanelState {
     sendIntervalUnitSelect: HTMLSelectElement
     sendLoopCountInput: HTMLInputElement
     loopSendBtn: HTMLButtonElement
+    enterSendModeKey: { set(value: boolean): void }
     batchStatusContainer: HTMLElement
     filePath: string | null
     visible: boolean
@@ -223,7 +224,7 @@ export class CommandEditorPanelService {
         if (
             findWidgetVisible
             && this.isMonacoOverlayInput(target)
-            && this.isFindEnterSendModeEnabled()
+            && this.isEnterSendModeEnabled()
             && event.key === 'Enter'
             && !event.altKey
         ) {
@@ -356,6 +357,7 @@ export class CommandEditorPanelService {
             if (editor) {
                 this.applyEditorTheme()
                 this.applyRightClickSendLineEditorOptions(editor)
+                this.panel?.enterSendModeKey.set(this.isEnterSendModeEnabled())
                 const model = editor.getModel()
                 if (model) {
                     // Re-tokenize existing fences after runnable language aliases change.
@@ -633,7 +635,7 @@ export class CommandEditorPanelService {
         return this.config.store.commandEditor?.rightClickSendLine === true
     }
 
-    private isFindEnterSendModeEnabled (): boolean {
+    private isEnterSendModeEnabled (): boolean {
         return this.config.store.commandEditor?.findEnterSendMode === true
     }
 
@@ -1300,6 +1302,8 @@ export class CommandEditorPanelService {
         }, { passive: false })
         sendLoopCountInput.addEventListener('change', () => this.persistSendLoopCountInput(sendLoopCountInput))
 
+        const enterSendModeKey = editor.createContextKey('commandEditorEnterSendMode', this.isEnterSendModeEnabled())
+
         this.setupEditorKeybindings(editor)
         this.setupCommandHistoryCompletion(editor)
         this.setupRightClickSendLine(editor, editorHost)
@@ -1326,6 +1330,7 @@ export class CommandEditorPanelService {
             sendIntervalUnitSelect,
             sendLoopCountInput,
             loopSendBtn,
+            enterSendModeKey,
             batchStatusContainer,
             filePath: null,
             visible: false,
@@ -1822,6 +1827,7 @@ export class CommandEditorPanelService {
         // Opening the find widget must not change Enter while focus remains in the editor.
         // Monaco's find input handles Enter/Shift+Enter itself when that input has focus.
         const editorContext = 'editorTextFocus && !suggestWidgetVisible'
+        const enterSendContext = `${editorContext} && commandEditorEnterSendMode`
 
         editor.addCommand(
             monaco.KeyCode.Tab,
@@ -1842,7 +1848,7 @@ export class CommandEditorPanelService {
             editorContext,
         )
 
-        editor.addCommand(monaco.KeyCode.Enter, send, editorContext)
+        editor.addCommand(monaco.KeyCode.Enter, send, enterSendContext)
         editor.addCommand(
             monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
             () => editor.trigger('keyboard', 'editor.action.insertLineAfter', null),

@@ -41,7 +41,7 @@ npm install tabby-command-editor
 1. Type a command in your terminal (don't press Enter)
 2. Press **Ctrl+E** (or your configured hotkey)
 3. Edit your command in the Monaco editor
-4. Press **Ctrl+Enter** to apply, or **Esc** to cancel
+4. Press **F8** to send, or enable **Use Enter to send commands** and press **Enter**
 
 The edited command will replace your current prompt content. Press Enter when ready to execute.
 

@@ -91,9 +91,11 @@ export const ZH_CN_TRANSLATIONS: Record<string, string> = {
     'Find previous': '查找上一个',
     'Next or Send': '下一个或发送',
     'Previous or Exit and Send': '上一个或退出并发送',
+    'New line or Send': '换行或发送',
     'Go to next highlighted symbol': '跳转到下一个高亮符号',
 
     'Send current line or selection (blocked inside code blocks)': '发送当前行或选区（代码块内不可用）',
+    'Default: insert a normal newline; send mode: send current line or selection': '默认：插入普通换行；发送模式：发送当前行或选区',
     'Stop active loop sends and background scripts': '停止正在进行的循环发送和后台脚本',
     'Stop active loop sends and tabby background tasks': '停止循环发送和 tabby 后台任务',
     'Monaco built-in (plugin does not bind F7)': 'Monaco 内置（插件未绑定 F7）',
@@ -137,8 +139,8 @@ export const ZH_CN_TRANSLATIONS: Record<string, string> = {
     'Editor options': '编辑器选项',
     'Right-click to send line': '右键发送当前行',
     'When enabled, right-click in the editor sends the command on that line to the terminal instead of opening the context menu.': '开启后，在编辑器内右键会将鼠标所在行的命令发送到终端，不再弹出上下文菜单。',
-    'Use Enter to send search matches': '使用 Enter 发送搜索匹配行',
-    'When enabled in the focused find/replace input: Enter sends the current match line, Shift+Enter exits and sends it, Ctrl+Enter finds next, and Ctrl+Shift+Enter finds previous.': '开启后，当焦点位于搜索或替换框时：Enter 发送当前匹配行，Shift+Enter 退出搜索并发送，Ctrl+Enter 查找下一个，Ctrl+Shift+Enter 查找上一个。',
+    'Use Enter to send commands': '使用 Enter 发送命令',
+    'When disabled, editor Enter inserts a normal newline and search Enter/Shift+Enter navigate matches. When enabled, editor Enter sends; in focused find/replace input, Enter sends the current match line, Shift+Enter exits and sends it, Ctrl+Enter finds next, and Ctrl+Shift+Enter finds previous.': '关闭时，编辑器 Enter 插入普通换行，搜索框 Enter/Shift+Enter 查找下一个/上一个。开启后，编辑器 Enter 发送；当焦点位于搜索或替换框时，Enter 发送当前匹配行，Shift+Enter 退出搜索并发送，Ctrl+Enter 查找下一个，Ctrl+Shift+Enter 查找上一个。',
     'Right-click (when enabled in settings)': '右键（需在设置中开启）',
     'Send the line under the mouse cursor to the terminal; replaces the context menu': '将鼠标所在行发送到终端；替代上下文菜单',
 
@@ -147,6 +149,10 @@ export const ZH_CN_TRANSLATIONS: Record<string, string> = {
     'Next completion or outdent': '下一个补全或取消缩进',
     'Cycle command-history suggestions; outdent when no suggestion is available': '循环历史命令建议；无建议时取消缩进',
     'Comments stripped; code block: run as a terminal file; line: send and move down; selection: loop': '去除注释；代码块：作为终端文件运行；单行：发送并下移；选区：循环发送',
+}
+
+function isChineseLocale (lang: string): boolean {
+    return /^zh(?:-|_|$)/i.test(lang)
 }
 
 function interpolate (text: string, params?: Record<string, string | number>): string {
@@ -172,7 +178,7 @@ export function t (
     params?: Record<string, string | number>,
 ): string {
     const lang = locale.getLocale()
-    if (lang === 'zh-CN') {
+    if (isChineseLocale(lang)) {
         return interpolate(ZH_CN_TRANSLATIONS[key] ?? key, params)
     }
 
@@ -196,7 +202,7 @@ export class CommandEditorLocaleService {
 
     private installTranslations (): void {
         const lang = this.locale.getLocale()
-        if (lang !== 'zh-CN') {
+        if (!isChineseLocale(lang)) {
             return
         }
 
