@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tabby-terminal-sdk"
+version = "0.1.0"
+description = "Python SDK for terminals opened in Tabby through tabby-command-editor"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Czyhandsome" }]
+keywords = ["tabby", "terminal", "automation"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

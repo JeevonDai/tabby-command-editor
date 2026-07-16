@@ -13,6 +13,7 @@ import { CommandEditorPanelHotkeyHandler } from './panelHotkeys'
 import { CommandEditorContextMenuProvider } from './contextMenu'
 import { CommandEditorPanelService } from './services/commandEditorPanel.service'
 import { CommandEditorSettingsTabComponent, CommandEditorSettingsTabProvider } from './settings'
+import { TerminalPythonBridgeService } from './terminalPythonBridge.service'
 
 @NgModule({
     imports: [
@@ -27,6 +28,7 @@ import { CommandEditorSettingsTabComponent, CommandEditorSettingsTabProvider } f
         CommandEditorConfigMigration,
         CommandEditorLocaleService,
         CommandEditorPanelHotkeyHandler,
+        TerminalPythonBridgeService,
         { provide: ConfigProvider, useClass: CommandEditorConfigProvider, multi: true },
         { provide: HotkeyProvider, useClass: CommandEditorHotkeyProvider, multi: true },
         { provide: TerminalContextMenuItemProvider, useClass: CommandEditorContextMenuProvider, multi: true },
@@ -39,9 +41,14 @@ export default class CommandEditorModule {
         _panelHotkeys: CommandEditorPanelHotkeyHandler,
         _configMigration: CommandEditorConfigMigration,
         _locale: CommandEditorLocaleService,
+        _pythonBridge: TerminalPythonBridgeService,
     ) {}
 }
 
 export { CommandEditorPanelService }
 export { TerminalPythonBridge } from './terminalPythonBridge'
-export type { PythonBridgeBinding } from './terminalPythonBridge'
+export type {
+    PythonBridgeBinding,
+    PythonBridgeTerminal,
+    PythonBridgeTerminalInfo,
+} from './terminalPythonBridge'

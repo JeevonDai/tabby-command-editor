@@ -21,7 +21,8 @@
   },
   "files": [
     "dist",
-    "typings"
+    "typings",
+    "python-sdk"
   ],
   "author": "Czyhandsome",
   "license": "MIT",

@@ -77,6 +77,36 @@ The injected methods are `tabby.send(text)`, `tabby.read(timeout=0)`,
 `print()` and stderr appear in the background task notification. Only `tabby.send()`
 writes to the automatically bound terminal; receive APIs read that terminal's output.
 
+### External Python SDK (VS Code / PyCharm)
+
+The plugin also starts a loopback-only bridge while Tabby is running. Install the
+dependency-free SDK from the plugin source directory:
+
+```bash
+python -m pip install ./python-sdk
+```
+
+Then list and connect to terminals from an external Python process or debugger:
+
+```python
+import tabby_sdk as tabby
+
+terminals = tabby.list_terminals()
+for item in terminals:
+    print(item.id, item.title, item.active)
+
+terminal = tabby.connect()       # active terminal
+# terminal = tabby.connect(terminals[0])
+mark = terminal.mark()
+terminal.send("python --version")
+print(terminal.expect(r"Python\s+([\d.]+)", timeout=5, since=mark).group(1))
+terminal.close()
+```
+
+The external `Terminal` object supports the same `send`, `read`, `tail`, `clear`,
+`mark`, and `expect` methods as a fenced `tabby` block. The bridge listens only on
+`127.0.0.1` and uses a per-launch token stored in a user-only temporary descriptor.
+
 ## Configuration
 
 The default hotkey is `Ctrl+E`. You can change this in **Settings → Hotkeys → Open command editor**.
