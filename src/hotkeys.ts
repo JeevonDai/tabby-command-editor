@@ -36,6 +36,14 @@ export class CommandEditorHotkeyProvider extends HotkeyProvider {
                 name: t(this.translate, this.locale, 'Send or loop in command editor'),
             },
             {
+                id: 'cancel-command-editor-loop',
+                name: t(this.translate, this.locale, 'Stop command editor loop'),
+            },
+            {
+                id: 'send-command-editor-panel',
+                name: t(this.translate, this.locale, 'Send from command editor'),
+            },
+            {
                 id: 'open-command-editor-outline',
                 name: t(this.translate, this.locale, 'Open markdown outline in command editor'),
             },

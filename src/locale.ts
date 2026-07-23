@@ -46,6 +46,8 @@ export const ZH_CN_TRANSLATIONS: Record<string, string> = {
     'Save file in command editor': '在命令编辑器中保存文件',
     'Reload file in command editor': '在命令编辑器中重新加载文件',
     'Send or loop in command editor': '在命令编辑器中发送或循环',
+    'Stop command editor loop': '停止命令编辑器循环',
+    'Send from command editor': '从命令编辑器发送',
     'Open markdown outline in command editor': '在命令编辑器中打开 Markdown 大纲',
     'Go to symbol in command editor': '在命令编辑器中跳转到符号',
     'Block run mode in command editor': '命令编辑器代码块运行模式',

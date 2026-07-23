@@ -24,7 +24,14 @@ const STYLE_ID = 'tabby-command-editor-panel-style'
 const BAR_ID = 'tabby-command-editor-panel-bar'
 const BODY_CLASS = 'tabby-command-editor-panel-enabled'
 const BROADCAST_BAR_ID = 'tabby-broadcast-input-bar'
-const TAB_CONTENT_SELECTOR = 'app-root > .content > .content'
+const TAB_CONTENT_SELECTOR = [
+    // Tabby 1.0.235+
+    'app-root > .window > .content.main > .content',
+    // Tolerate wrapper/layout changes while still selecting the tab content host.
+    'app-root .content.main > .content',
+    // Older Tabby releases.
+    'app-root > .content > .content',
+].join(', ')
 const PANEL_SIZE_VAR = '--tabby-command-editor-panel-size'
 const CONTENT_TAB_SELECTOR = 'app-root .content > .content > .content-tab.content-tab-active, app-root > .content > .content > .content-tab.content-tab-active'
 const PLUGIN_BUILD_ID = '20260530-loop6'
@@ -421,11 +428,23 @@ export class CommandEditorPanelService {
 
     openFindWidget (): void {
         const state = this.ensurePanel()
-        if (!state.visible) {
+        const wasVisible = state.visible
+        if (!wasVisible) {
             this.showPanel(state, this.getActiveTerminalTab())
         }
-        state.editor.focus()
-        state.editor.getAction('actions.find')?.run()
+
+        const openFind = (): void => {
+            state.editor.focus()
+            void state.editor.getAction('actions.find')?.run()
+        }
+
+        // showPanel focuses Monaco on its first animation frame. When the panel
+        // was just mounted, open the find widget afterwards so its input keeps focus.
+        if (wasVisible) {
+            openFind()
+        } else {
+            requestAnimationFrame(openFind)
+        }
     }
 
     openOutlinePicker (): void {
@@ -1525,7 +1544,10 @@ export class CommandEditorPanelService {
     /** Mount inside the terminal tab area so the panel sits beside terminals, not over the title/tab bar */
     private mountPanel (root: HTMLElement): void {
         const tabArea = this.getTabContentArea()
-        ;(tabArea ?? document.body).appendChild(root)
+        if (!tabArea) {
+            throw new Error(`Tabby tab content host not found: ${TAB_CONTENT_SELECTOR}`)
+        }
+        tabArea.appendChild(root)
     }
 
     private getPanelPosition (): PanelPosition {

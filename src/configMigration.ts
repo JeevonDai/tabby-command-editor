@@ -9,10 +9,17 @@ export class CommandEditorConfigMigration {
         private app: AppService,
         private config: ConfigService,
     ) {
+        // ConfigService.store is not available during Angular provider construction.
+        // Config readiness is the authoritative point at which migrations may read it.
+        this.config.ready$.subscribe(() => this.migrate())
         this.app.ready$.subscribe(() => this.migrate())
     }
 
     private migrate (): void {
+        if (!this.config.store) {
+            return
+        }
+
         let changed = false
 
         const hotkeys = this.config.store.hotkeys as Record<string, string[] | undefined> | undefined
@@ -42,7 +49,11 @@ export class CommandEditorConfigMigration {
         for (const key of ['pythonLogMode', 'blockRunMode', 'codeBlockBackgroundCommands']) {
             if (commandEditor && key in commandEditor) { delete commandEditor[key]; changed = true }
         }
-        for (const key of ['toggle-command-editor-python-log', 'open-command-editor-python-log']) {
+        for (const key of [
+            'toggle-command-editor-python-log',
+            'open-command-editor-python-log',
+            'bind-command-editor-python-api',
+        ]) {
             if (hotkeys?.[key]) { delete hotkeys[key]; changed = true }
         }
 
