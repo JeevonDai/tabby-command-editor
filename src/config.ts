@@ -19,7 +19,7 @@ export class CommandEditorConfigProvider extends ConfigProvider {
             /** How many times to repeat the selected lines in loop send. */
             sendLoopCount: 1,
             /** When true, right-click sends the line under the cursor instead of opening the context menu. */
-            rightClickSendLine: false,
+            rightClickSendLine: true,
             /** When true, Enter sends from the editor and remaps Enter shortcuts in Monaco find/replace. */
             findEnterSendMode: false,
             /** Markdown fence language tag → interpreter family (python/bash/powershell). */

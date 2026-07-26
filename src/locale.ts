@@ -147,6 +147,8 @@ export const ZH_CN_TRANSLATIONS: Record<string, string> = {
     'When enabled, right-click in the editor sends the command on that line to the terminal instead of opening the context menu.': '开启后，在编辑器内右键会将鼠标所在行的命令发送到终端，不再弹出上下文菜单。',
     'Use Enter to send commands': '使用 Enter 发送命令',
     'When disabled, editor Enter inserts a normal newline and search Enter/Shift+Enter navigate matches. When enabled, editor Enter sends; in focused find/replace input, Enter sends the current match line, Shift+Enter exits and sends it, Ctrl+Enter finds next, and Ctrl+Shift+Enter finds previous.': '关闭时，编辑器 Enter 插入普通换行，搜索框 Enter/Shift+Enter 查找下一个/上一个。开启后，编辑器 Enter 发送；当焦点位于搜索或替换框时，Enter 发送当前匹配行，Shift+Enter 退出搜索并发送，Ctrl+Enter 查找下一个，Ctrl+Shift+Enter 查找上一个。',
+    'Multi-line send interval': '多行发送间隔',
+    'Delay between commands when sending a multi-line selection.': '发送多行选区时，每条命令之间的等待时间。',
     'Right-click (when enabled in settings)': '右键（需在设置中开启）',
     'Send the line under the mouse cursor to the terminal; replaces the context menu': '将鼠标所在行发送到终端；替代上下文菜单',
 

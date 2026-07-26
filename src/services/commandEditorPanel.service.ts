@@ -397,6 +397,15 @@ export class CommandEditorPanelService {
             return
         }
 
+        const selection = editor.getSelection()
+        if (selection && !selection.isEmpty()
+            && lineNumber >= selection.startLineNumber
+            && lineNumber <= selection.endLineNumber) {
+            this.savedEditorSelection = selection
+            this.zone.run(() => this.sendFromPanel())
+            return
+        }
+
         this.zone.run(() => this.sendFromPanelAtLine(lineNumber))
     }
 
@@ -593,7 +602,9 @@ export class CommandEditorPanelService {
             return
         }
 
-        if (findRunnableCodeBlockAtCursor(state.editor, this.getCodeBlockRunSettings())) {
+        const selection = this.getEffectiveSelection(state.editor)
+        if ((!selection || selection.isEmpty())
+            && findRunnableCodeBlockAtCursor(state.editor, this.getCodeBlockRunSettings())) {
             this.notifications.info(t(this.translate, this.locale, 'Send is disabled inside code blocks — use Loop or Run (F9)'))
             return
         }
@@ -1302,6 +1313,10 @@ export class CommandEditorPanelService {
         saveBtn.addEventListener('click', () => this.saveFile())
         closeBtn.addEventListener('click', () => this.closeFile())
         fileHistoryButton.addEventListener('click', () => this.toggleFileHistoryMenu())
+        sendBtn.addEventListener('mousedown', (event: MouseEvent) => {
+            event.preventDefault()
+            this.savedEditorSelection = editor.getSelection()
+        })
         sendBtn.addEventListener('click', () => this.sendFromPanel())
         loopSendBtn.addEventListener('mousedown', (event: MouseEvent) => {
             event.preventDefault()
@@ -2885,7 +2900,7 @@ export class CommandEditorPanelService {
     }
 
     private getTextToSend (editor: monaco.editor.IStandaloneCodeEditor, forceLine?: boolean): string {
-        const selection = editor.getSelection()
+        const selection = this.getEffectiveSelection(editor)
         const model = editor.getModel()
         if (!model) {
             return ''
@@ -2901,6 +2916,16 @@ export class CommandEditorPanelService {
         }
 
         return model.getLineContent(position.lineNumber)
+    }
+
+    private getEffectiveSelection (editor: monaco.editor.IStandaloneCodeEditor): monaco.Selection | null {
+        const selection = editor.getSelection()
+        if (selection && !selection.isEmpty()) {
+            return selection
+        }
+        return this.savedEditorSelection && !this.savedEditorSelection.isEmpty()
+            ? this.savedEditorSelection
+            : selection
     }
 
     /** Selected line(s): expands partial selection to full lines. */

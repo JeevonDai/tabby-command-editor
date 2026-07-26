@@ -9,7 +9,7 @@ export interface CommandHistorySuggestion {
 }
 
 /**
- * Find command lines anywhere in the current file which extend the text being typed.
+ * Find command lines anywhere in the current file which fuzzily match the text being typed.
  * Results are de-duplicated and ordered by distance from the current line.
  */
 export function findCommandHistorySuggestions (
@@ -44,7 +44,7 @@ export function findCommandHistorySuggestions (
         const candidate = model.getLineContent(lineNumber).trim()
         if (
             candidate.length <= prefix.length ||
-            !candidate.startsWith(prefix) ||
+            !isFuzzyMatch(candidate, prefix) ||
             isNonCommandLine(candidate) ||
             seen.has(candidate)
         ) {
@@ -69,6 +69,23 @@ export function findCommandHistorySuggestions (
         ),
         signature: `${model.uri.toString()}:${position.lineNumber}:${position.column}:${prefix}:${candidates.join('\u0000')}`,
     }
+}
+
+/** Case-insensitive subsequence match: `gco` matches `git checkout`. */
+export function isFuzzyMatch (candidate: string, query: string): boolean {
+    const normalizedCandidate = candidate.toLocaleLowerCase()
+    const normalizedQuery = query.toLocaleLowerCase()
+    let queryIndex = 0
+
+    for (const character of normalizedCandidate) {
+        if (character === normalizedQuery[queryIndex]) {
+            queryIndex++
+            if (queryIndex === normalizedQuery.length) {
+                return true
+            }
+        }
+    }
+    return normalizedQuery.length === 0
 }
 
 function isNonCommandLine (line: string): boolean {

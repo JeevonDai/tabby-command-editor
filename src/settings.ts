@@ -133,6 +133,22 @@ export class CommandEditorSettingsTabProvider extends SettingsTabProvider {
                     </label>
                     <p class="text-muted">{{ labels.findEnterSendModeDesc }}</p>
                 </div>
+                <div class="command-editor-option-row">
+                    <label class="command-editor-option-field">
+                        <span>{{ labels.multiLineSendInterval }}</span>
+                        <select
+                            class="form-select form-select-sm"
+                            [value]="sendLineIntervalMs"
+                            (change)="onSendLineIntervalChange($event)"
+                        >
+                            <option value="50">50ms</option>
+                            <option value="100">100ms</option>
+                            <option value="500">500ms</option>
+                            <option value="1000">1s</option>
+                        </select>
+                    </label>
+                    <p class="text-muted">{{ labels.multiLineSendIntervalDesc }}</p>
+                </div>
             </section>
 
             <section>
@@ -370,6 +386,17 @@ print("version:", match.group(1))
             height: 16px;
             margin: 0;
             cursor: pointer;
+        }
+
+        .command-editor-option-field {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 0;
+        }
+
+        .command-editor-option-field select {
+            width: 120px;
         }
 
         .command-editor-shortcut-table {
@@ -618,6 +645,8 @@ export class CommandEditorSettingsTabComponent {
             rightClickSendLineDesc: t(this.translate, this.locale, 'When enabled, right-click in the editor sends the command on that line to the terminal instead of opening the context menu.'),
             findEnterSendMode: t(this.translate, this.locale, 'Use Enter to send commands'),
             findEnterSendModeDesc: t(this.translate, this.locale, 'When disabled, editor Enter inserts a normal newline and search Enter/Shift+Enter navigate matches. When enabled, editor Enter sends; in focused find/replace input, Enter sends the current match line, Shift+Enter exits and sends it, Ctrl+Enter finds next, and Ctrl+Shift+Enter finds previous.'),
+            multiLineSendInterval: t(this.translate, this.locale, 'Multi-line send interval'),
+            multiLineSendIntervalDesc: t(this.translate, this.locale, 'Delay between commands when sending a multi-line selection.'),
             pythonApi: t(this.translate, this.locale, 'Python API'),
             pythonApiDesc: t(this.translate, this.locale, 'Use a fenced tabby block for background Python. It automatically binds send/read operations to the terminal focused when the task starts.'),
             apiSend: t(this.translate, this.locale, 'Send text as one or more commands to the bound terminal.'),
@@ -688,6 +717,24 @@ export class CommandEditorSettingsTabComponent {
             return
         }
         this.config.store.commandEditor.findEnterSendMode = checked
+        void this.config.save()
+    }
+
+    get sendLineIntervalMs (): number {
+        const seconds = this.config.store.commandEditor?.sendLineIntervalSec
+        const milliseconds = typeof seconds === 'number' && Number.isFinite(seconds)
+            ? Math.round(seconds * 1000)
+            : 1000
+        return [50, 100, 500, 1000].includes(milliseconds) ? milliseconds : 1000
+    }
+
+    onSendLineIntervalChange (event: Event): void {
+        const milliseconds = Number((event.target as HTMLSelectElement).value)
+        if (!this.config.store.commandEditor || ![50, 100, 500, 1000].includes(milliseconds)) {
+            return
+        }
+        this.config.store.commandEditor.sendLineIntervalSec = milliseconds / 1000
+        this.config.store.commandEditor.sendLineIntervalUnit = milliseconds < 1000 ? 'ms' : 's'
         void this.config.save()
     }
 
